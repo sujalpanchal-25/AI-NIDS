@@ -4,7 +4,7 @@ Dashboard Routes
 Main dashboard views and real-time monitoring.
 """
 
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, session, current_app
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta
 from sqlalchemy import func
@@ -12,6 +12,10 @@ import random
 
 from app import db
 from app.models.database import Alert, NetworkFlow, SystemMetrics
+from app.services.analysis import CSVAnalysisService
+import os
+
+analysis_service = CSVAnalysisService()
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
@@ -26,6 +30,19 @@ def index():
 @login_required
 def dashboard():
     """Main dashboard view."""
+    # Get available datasets and selections
+    datasets = analysis_service.get_available_datasets()
+    selected_dataset = session.get('selected_dataset')
+    selected_dataset_name = session.get('selected_dataset_name')
+    
+    # Verify dataset actually exists in DB
+    if selected_dataset:
+        if not any(d['batch_id'] == selected_dataset for d in datasets):
+            session.pop('selected_dataset', None)
+            session.pop('selected_dataset_name', None)
+            selected_dataset = None
+            selected_dataset_name = None
+
     # Get summary statistics
     stats = get_dashboard_stats()
     recent_alerts = get_recent_alerts(limit=10)
@@ -41,7 +58,10 @@ def dashboard():
         traffic_data=traffic_data,
         attack_distribution=attack_distribution,
         top_sources=top_sources,
-        severity_data=severity_data
+        severity_data=severity_data,
+        datasets=datasets,
+        selected_dataset=selected_dataset,
+        selected_dataset_name=selected_dataset_name
     )
 
 
@@ -165,17 +185,29 @@ def get_dashboard_stats():
     period_start = now - timedelta(hours=24)
     yesterday_start = period_start - timedelta(hours=24)
     
+    batch_id = session.get('selected_dataset')
+    
     # Total flows in last 24 hours
-    total_flows = NetworkFlow.query.filter(
+    q_flows = NetworkFlow.query
+    if batch_id:
+        q_flows = q_flows.filter(NetworkFlow.batch_id == batch_id)
+        
+    total_flows = q_flows.filter(
         NetworkFlow.timestamp >= period_start
     ).count()
     
     # If no recent data, get total flows from database
     if total_flows == 0:
-        total_flows = NetworkFlow.query.count()
+        if batch_id:
+            total_flows = NetworkFlow.query.filter_by(batch_id=batch_id).count()
+        else:
+            total_flows = NetworkFlow.query.count()
     
     # Previous 24 hour period flows for comparison
-    yesterday_flows = NetworkFlow.query.filter(
+    q_yesterday_flows = NetworkFlow.query
+    if batch_id:
+        q_yesterday_flows = q_yesterday_flows.filter(NetworkFlow.batch_id == batch_id)
+    yesterday_flows = q_yesterday_flows.filter(
         NetworkFlow.timestamp >= yesterday_start,
         NetworkFlow.timestamp < period_start
     ).count()
@@ -187,16 +219,26 @@ def get_dashboard_stats():
         flow_trend = 12.0 if total_flows > 0 else 0
     
     # Total alerts in last 24 hours
-    total_alerts = Alert.query.filter(
+    q_alerts = Alert.query
+    if batch_id:
+        q_alerts = q_alerts.filter(Alert.batch_id == batch_id)
+        
+    total_alerts = q_alerts.filter(
         Alert.timestamp >= period_start
     ).count()
     
     # If no recent alerts, get total from database
     if total_alerts == 0:
-        total_alerts = Alert.query.count()
+        if batch_id:
+            total_alerts = Alert.query.filter_by(batch_id=batch_id).count()
+        else:
+            total_alerts = Alert.query.count()
     
     # Previous period alerts
-    yesterday_alerts = Alert.query.filter(
+    q_yesterday_alerts = Alert.query
+    if batch_id:
+        q_yesterday_alerts = q_yesterday_alerts.filter(Alert.batch_id == batch_id)
+    yesterday_alerts = q_yesterday_alerts.filter(
         Alert.timestamp >= yesterday_start,
         Alert.timestamp < period_start
     ).count()
@@ -208,30 +250,42 @@ def get_dashboard_stats():
         alert_trend = -5.0 if total_alerts > 0 else 0
     
     # Critical alerts (all time if none in period)
-    critical_alerts = Alert.query.filter(
+    q_critical = Alert.query
+    if batch_id:
+        q_critical = q_critical.filter(Alert.batch_id == batch_id)
+    critical_alerts = q_critical.filter(
         Alert.timestamp >= period_start,
         Alert.severity == 'critical'
     ).count()
     
     if critical_alerts == 0:
-        critical_alerts = Alert.query.filter(Alert.severity == 'critical').count()
+        if batch_id:
+            critical_alerts = Alert.query.filter_by(batch_id=batch_id, severity='critical').count()
+        else:
+            critical_alerts = Alert.query.filter(Alert.severity == 'critical').count()
     
     # Unique source IPs with alerts (blocked IPs)
-    blocked_ips = db.session.query(
+    q_blocked = db.session.query(
         func.count(func.distinct(Alert.source_ip))
-    ).filter(
+    )
+    if batch_id:
+        q_blocked = q_blocked.filter(Alert.batch_id == batch_id)
+    blocked_ips = q_blocked.filter(
         Alert.severity.in_(['critical', 'high'])
     ).scalar() or 0
     
     # Calculate REAL detection rate from model confidence
-    avg_confidence = db.session.query(
+    q_confidence = db.session.query(
         func.avg(Alert.confidence)
-    ).scalar()
+    )
+    if batch_id:
+        q_confidence = q_confidence.filter(Alert.batch_id == batch_id)
+    avg_confidence = q_confidence.scalar()
     
     if avg_confidence:
         detection_rate = round(min(avg_confidence * 100, 100), 1)
     else:
-        detection_rate = 96.8  # Default good detection rate
+        detection_rate = 0.0  # Default to 0.0% for fresh start
     
     # Flows per second (estimate from total flows over period)
     if total_flows > 0:
@@ -254,7 +308,11 @@ def get_dashboard_stats():
 
 def get_recent_alerts(limit=10):
     """Get most recent alerts."""
-    return Alert.query.order_by(
+    batch_id = session.get('selected_dataset')
+    query = Alert.query
+    if batch_id:
+        query = query.filter(Alert.batch_id == batch_id)
+    return query.order_by(
         Alert.timestamp.desc()
     ).limit(limit).all()
 
@@ -264,14 +322,23 @@ def get_traffic_timeline(hours=24):
     now = datetime.utcnow()
     start_time = now - timedelta(hours=hours)
     
+    batch_id = session.get('selected_dataset')
+    
     # Check if we have recent data, if not use the latest data available
-    recent_count = db.session.query(func.count(NetworkFlow.id)).filter(
+    q_count = db.session.query(func.count(NetworkFlow.id))
+    if batch_id:
+        q_count = q_count.filter(NetworkFlow.batch_id == batch_id)
+        
+    recent_count = q_count.filter(
         NetworkFlow.timestamp >= start_time
     ).scalar()
     
     # If no recent data, find the latest data and use that time range instead
     if recent_count == 0:
-        latest_flow = db.session.query(NetworkFlow).order_by(
+        q_latest = db.session.query(NetworkFlow)
+        if batch_id:
+            q_latest = q_latest.filter(NetworkFlow.batch_id == batch_id)
+        latest_flow = q_latest.order_by(
             NetworkFlow.timestamp.desc()
         ).first()
         
@@ -296,11 +363,15 @@ def get_traffic_timeline(hours=24):
         format_str = '%d %b %H:00'
     
     # Query actual data
-    flow_data = db.session.query(
+    q_data = db.session.query(
         func.strftime('%Y-%m-%d %H:00:00', NetworkFlow.timestamp).label('hour'),
         func.count().label('count'),
         func.sum(NetworkFlow.total_bytes).label('bytes')
-    ).filter(
+    )
+    if batch_id:
+        q_data = q_data.filter(NetworkFlow.batch_id == batch_id)
+        
+    flow_data = q_data.filter(
         NetworkFlow.timestamp >= start_time
     ).group_by('hour').all()
     
@@ -334,11 +405,17 @@ def get_attack_distribution():
     now = datetime.utcnow()
     week_start = now - timedelta(days=7)
     
+    batch_id = session.get('selected_dataset')
+    
     # Try recent data first
-    distribution = db.session.query(
+    q_dist = db.session.query(
         Alert.attack_type,
         func.count().label('count')
-    ).filter(
+    )
+    if batch_id:
+        q_dist = q_dist.filter(Alert.batch_id == batch_id)
+        
+    distribution = q_dist.filter(
         Alert.timestamp >= week_start
     ).group_by(Alert.attack_type).order_by(
         func.count().desc()
@@ -346,10 +423,14 @@ def get_attack_distribution():
     
     # If no recent data, get all data
     if not distribution:
-        distribution = db.session.query(
+        q_all = db.session.query(
             Alert.attack_type,
             func.count().label('count')
-        ).group_by(Alert.attack_type).order_by(
+        )
+        if batch_id:
+            q_all = q_all.filter(Alert.batch_id == batch_id)
+            
+        distribution = q_all.group_by(Alert.attack_type).order_by(
             func.count().desc()
         ).limit(8).all()
     
@@ -369,20 +450,29 @@ def get_severity_breakdown():
     
     severity_order = ['critical', 'high', 'medium', 'low', 'info']
     
+    batch_id = session.get('selected_dataset')
+    
     # Try recent data first
-    breakdown = db.session.query(
+    q_sev = db.session.query(
         Alert.severity,
         func.count().label('count')
-    ).filter(
+    )
+    if batch_id:
+        q_sev = q_sev.filter(Alert.batch_id == batch_id)
+        
+    breakdown = q_sev.filter(
         Alert.timestamp >= week_start
     ).group_by(Alert.severity).all()
     
     # If no recent data, get all data
     if not breakdown:
-        breakdown = db.session.query(
+        q_all = db.session.query(
             Alert.severity,
             func.count().label('count')
-        ).group_by(Alert.severity).all()
+        )
+        if batch_id:
+            q_all = q_all.filter(Alert.batch_id == batch_id)
+        breakdown = q_all.group_by(Alert.severity).all()
     
     severity_dict = {s.severity: s.count for s in breakdown}
     
@@ -397,11 +487,17 @@ def get_top_source_ips(limit=5):
     now = datetime.utcnow()
     week_start = now - timedelta(days=7)
     
+    batch_id = session.get('selected_dataset')
+    
     # Try recent data first
-    top_ips = db.session.query(
+    q_ips = db.session.query(
         Alert.source_ip,
         func.count().label('count')
-    ).filter(
+    )
+    if batch_id:
+        q_ips = q_ips.filter(Alert.batch_id == batch_id)
+        
+    top_ips = q_ips.filter(
         Alert.timestamp >= week_start
     ).group_by(Alert.source_ip).order_by(
         func.count().desc()
@@ -409,10 +505,13 @@ def get_top_source_ips(limit=5):
     
     # If no recent data, get all data
     if not top_ips:
-        top_ips = db.session.query(
+        q_all = db.session.query(
             Alert.source_ip,
             func.count().label('count')
-        ).group_by(Alert.source_ip).order_by(
+        )
+        if batch_id:
+            q_all = q_all.filter(Alert.batch_id == batch_id)
+        top_ips = q_all.group_by(Alert.source_ip).order_by(
             func.count().desc()
         ).limit(limit).all()
     
@@ -466,3 +565,248 @@ def showcase_stats():
             'deployment_ready': True
         }
     })
+
+
+# ==================== CSV Dataset Upload & Analysis ====================
+
+import os
+import uuid
+import io
+import csv
+from flask import current_app, send_file, Response
+from app import csrf
+from werkzeug.utils import secure_filename
+
+@dashboard_bp.route('/api/upload-dataset', methods=['POST'])
+@login_required
+@csrf.exempt
+def upload_dataset():
+    """Endpoint to upload CSV dataset or trigger sample analysis."""
+    try:
+        # Check if sample request
+        use_sample = False
+        if request.is_json:
+            use_sample = request.json.get('use_sample') == 'true' or request.json.get('use_sample') is True
+        else:
+            use_sample = request.form.get('use_sample') == 'true'
+        
+        if use_sample:
+            # Locate sample file
+            sample_path = os.path.join(analysis_service.upload_dir, 'sample_traffic.csv')
+            if not os.path.exists(sample_path):
+                return jsonify({'error': f'Sample dataset file not found at {sample_path}'}), 404
+                
+            app_obj = current_app._get_current_object()
+            batch_id = analysis_service.start_analysis_async(sample_path, app=app_obj, use_sample=True)
+            return jsonify({'success': True, 'batch_id': batch_id, 'message': 'Sample analysis started'})
+
+        # Standard file upload validation
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part in the request'}), 400
+            
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected for upload'}), 400
+            
+        if not file.filename.endswith('.csv'):
+            return jsonify({'error': 'Unsupported file type. Only CSV files are accepted.'}), 400
+            
+        # Safe filename & save temporarily
+        filename = secure_filename(file.filename)
+        temp_dir = analysis_service.upload_dir
+        os.makedirs(temp_dir, exist_ok=True)
+        file_path = os.path.join(temp_dir, filename)
+        
+        file.save(file_path)
+        
+        # Validate CSV size & headers
+        is_ok, err_msg = analysis_service.validate_file(file_path)
+        if not is_ok:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            return jsonify({'error': err_msg}), 400
+            
+        # Start analysis process
+        app_obj = current_app._get_current_object()
+        batch_id = analysis_service.start_analysis_async(file_path, app=app_obj, use_sample=False)
+        return jsonify({
+            'success': True,
+            'batch_id': batch_id,
+            'message': 'Dataset uploaded successfully. Threat analysis initialized.'
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Dataset upload API failed: {str(e)}")
+        return jsonify({'error': f"Failed to upload dataset: {str(e)}"}), 500
+
+
+@dashboard_bp.route('/api/upload-dataset/status/<batch_id>', methods=['GET'])
+@login_required
+def upload_dataset_status(batch_id):
+    """Retrieve background classification progress."""
+    status_data = analysis_service.get_status(batch_id)
+    if not status_data:
+        return jsonify({'error': 'Batch analysis session not found'}), 404
+    return jsonify(status_data)
+
+
+@dashboard_bp.route('/api/select-dataset', methods=['POST'])
+@login_required
+@csrf.exempt
+def select_dataset():
+    """Endpoint to select a dataset by filename."""
+    try:
+        data = request.get_json() or {}
+        filename = data.get('filename')
+        
+        if not filename:
+            # Clear selection if no filename is provided (switch to Live Traffic)
+            session.pop('selected_dataset', None)
+            session.pop('selected_dataset_name', None)
+            return jsonify({'success': True, 'message': 'Reset to live traffic view', 'analyzed': True})
+        
+        # Verify file exists
+        file_path = os.path.join(analysis_service.upload_dir, filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({'error': f'Dataset {filename} not found in storage'}), 404
+            
+        # Get metadata mapping
+        metadata = analysis_service.get_metadata()
+        batch_info = metadata.get(filename, {})
+        batch_id = batch_info.get('batch_id')
+        
+        # Check if records actually exist in database
+        has_records = False
+        if batch_id:
+            has_records = db.session.query(NetworkFlow.id).filter_by(batch_id=batch_id).first() is not None
+            
+        if batch_id and has_records:
+            session['selected_dataset'] = batch_id
+            session['selected_dataset_name'] = filename
+            return jsonify({
+                'success': True,
+                'message': f'Switched to dataset {filename}',
+                'analyzed': True,
+                'batch_id': batch_id
+            })
+        else:
+            # Trigger analysis
+            is_sample = (filename == 'sample_traffic.csv')
+            app_obj = current_app._get_current_object()
+            new_batch_id = analysis_service.start_analysis_async(file_path, app=app_obj, use_sample=is_sample)
+            
+            session['selected_dataset'] = new_batch_id
+            session['selected_dataset_name'] = filename
+            
+            return jsonify({
+                'success': True,
+                'message': f'Analysis initialized for dataset {filename}',
+                'analyzed': False,
+                'batch_id': new_batch_id
+            })
+            
+    except Exception as e:
+        current_app.logger.error(f"Select dataset API failed: {str(e)}")
+        return jsonify({'error': f"Failed to select dataset: {str(e)}"}), 500
+
+
+@dashboard_bp.route('/api/export-report/<batch_id>/pdf', methods=['GET'])
+@login_required
+def export_batch_pdf(batch_id):
+    """Generate and download security PDF report for the analyzed batch."""
+    try:
+        from utils.pdf_report import generate_security_report
+        
+        # Query batch specific data
+        alerts = Alert.query.filter_by(batch_id=batch_id).all()
+        flows = NetworkFlow.query.filter_by(batch_id=batch_id).all()
+        
+        if not flows:
+            return jsonify({'error': 'No traffic flows found for this batch session'}), 404
+            
+        pdf_buffer = generate_security_report(alerts, flows, days=1)
+        filename = f"AI-NIDS_Session_Report_{batch_id[:8]}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"
+        
+        return send_file(
+            pdf_buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        current_app.logger.error(f"Failed to generate PDF for batch {batch_id}: {str(e)}")
+        return jsonify({'error': f"Failed to generate PDF report: {str(e)}"}), 500
+
+
+@dashboard_bp.route('/api/export-report/<batch_id>/csv', methods=['GET'])
+@login_required
+def export_batch_csv(batch_id):
+    """Export threat detection flows in CSV format."""
+    try:
+        flows = NetworkFlow.query.filter_by(batch_id=batch_id).all()
+        if not flows:
+            return jsonify({'error': 'No traffic flows found for this batch session'}), 404
+            
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write headers
+        writer.writerow([
+            'Timestamp', 'Source IP', 'Destination IP', 'Source Port', 'Destination Port',
+            'Protocol', 'Duration', 'Total Bytes', 'Packets Sent', 'Packets Recv', 
+            'Label', 'AI Classification', 'Risk Level'
+        ])
+        
+        # Find alerts to map severity
+        alerts = Alert.query.filter_by(batch_id=batch_id).all()
+        alert_map = {(a.source_ip, a.destination_ip, a.destination_port): a.severity for a in alerts}
+        
+        for f in flows:
+            severity = alert_map.get((f.source_ip, f.destination_ip, f.destination_port), 'info') if f.is_anomaly else 'normal'
+            writer.writerow([
+                f.timestamp.strftime('%Y-%m-%d %H:%M:%S') if f.timestamp else '',
+                f.source_ip, f.destination_ip, f.source_port, f.destination_port,
+                f.protocol, f.duration, f.total_bytes, f.packets_sent, f.packets_recv,
+                f.label, f.predicted_label, severity
+            ])
+            
+        output.seek(0)
+        filename = f"AI-NIDS_Session_Analysis_{batch_id[:8]}.csv"
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )
+    except Exception as e:
+        current_app.logger.error(f"Failed to generate CSV for batch {batch_id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@dashboard_bp.route('/api/export-report/<batch_id>/json', methods=['GET'])
+@login_required
+def export_batch_json(batch_id):
+    """Retrieve batch details in JSON format."""
+    try:
+        status_data = analysis_service.get_status(batch_id)
+        flows = NetworkFlow.query.filter_by(batch_id=batch_id).all()
+        alerts = Alert.query.filter_by(batch_id=batch_id).all()
+        
+        if not flows:
+            return jsonify({'error': 'No traffic flows found for this batch session'}), 404
+            
+        response_data = {
+            'batch_id': batch_id,
+            'summary': status_data['results'] if status_data and status_data.get('results') else {
+                'processed_records': len(flows),
+                'detected_threats': len(alerts),
+                'normal_traffic': len(flows) - len(alerts)
+            },
+            'timestamp': datetime.utcnow().isoformat(),
+            'threats': [a.to_dict() for a in alerts],
+            'flows': [f.to_dict() for f in flows[:100]] # Limit to first 100 for JSON size
+        }
+        
+        return jsonify(response_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

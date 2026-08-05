@@ -94,6 +94,7 @@ class Alert(db.Model):
     
     # Raw Data
     raw_data = db.Column(db.Text)  # JSON string of original flow data
+    batch_id = db.Column(db.String(50), index=True)
     
     # Indexes for performance
     __table_args__ = (
@@ -117,6 +118,7 @@ class Alert(db.Model):
             'risk_score': self.risk_score,
             'description': self.description,
             'model_used': self.model_used,
+            'batch_id': self.batch_id,
             'acknowledged': self.acknowledged,
             'acknowledged_at': self.acknowledged_at.isoformat() if self.acknowledged_at else None,
             'resolved': self.resolved,
@@ -196,6 +198,7 @@ class NetworkFlow(db.Model):
     
     # Raw Data
     raw_data = db.Column(db.Text)  # JSON string
+    batch_id = db.Column(db.String(50), index=True)
     
     # Indexes for performance
     __table_args__ = (
@@ -218,7 +221,8 @@ class NetworkFlow(db.Model):
             'packets_sent': self.packets_sent,
             'packets_recv': self.packets_recv,
             'label': self.label,
-            'predicted_label': self.predicted_label
+            'predicted_label': self.predicted_label,
+            'batch_id': self.batch_id
         }
     
     def __repr__(self):

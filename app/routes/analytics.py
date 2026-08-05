@@ -4,13 +4,21 @@ Analytics Routes
 Deep analytics, trends, and reporting views.
 """
 
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, session
 from flask_login import login_required
 from datetime import datetime, timedelta
 from sqlalchemy import func, distinct
 
 from app import db
 from app.models.database import Alert, NetworkFlow
+
+def filter_query(query_obj, model):
+    """Filter SQLAlchemy queries by selected dataset batch ID if present in session."""
+    batch_id = session.get('selected_dataset')
+    if batch_id:
+        return query_obj.filter(model.batch_id == batch_id)
+    return query_obj
+
 
 analytics_bp = Blueprint('analytics', __name__)
 
@@ -87,14 +95,14 @@ def export_pdf_report():
     start_date = datetime.utcnow() - timedelta(days=days)
     
     # Get data for report - try with date filter, fall back to all data
-    alerts = Alert.query.filter(Alert.timestamp >= start_date).order_by(Alert.timestamp.desc()).all()
-    flows = NetworkFlow.query.filter(NetworkFlow.timestamp >= start_date).limit(10000).all()
+    alerts = filter_query(Alert.query, Alert).filter(Alert.timestamp >= start_date).order_by(Alert.timestamp.desc()).all()
+    flows = filter_query(NetworkFlow.query, NetworkFlow).filter(NetworkFlow.timestamp >= start_date).limit(10000).all()
     
     # Fall back to all data if empty
     if not alerts:
-        alerts = Alert.query.order_by(Alert.timestamp.desc()).limit(1000).all()
+        alerts = filter_query(Alert.query, Alert).order_by(Alert.timestamp.desc()).limit(1000).all()
     if not flows:
-        flows = NetworkFlow.query.order_by(NetworkFlow.timestamp.desc()).limit(10000).all()
+        flows = filter_query(NetworkFlow.query, NetworkFlow).order_by(NetworkFlow.timestamp.desc()).limit(10000).all()
     
     try:
         # Import and generate PDF report
@@ -143,9 +151,9 @@ def export_data(data_type):
                          'Severity', 'Confidence', 'Risk Score', 'Acknowledged', 'Resolved'])
         
         # Try with date filter first, fall back to all data
-        alerts = Alert.query.filter(Alert.timestamp >= start_date).order_by(Alert.timestamp.desc()).all()
+        alerts = filter_query(Alert.query, Alert).filter(Alert.timestamp >= start_date).order_by(Alert.timestamp.desc()).all()
         if not alerts:
-            alerts = Alert.query.order_by(Alert.timestamp.desc()).limit(1000).all()
+            alerts = filter_query(Alert.query, Alert).order_by(Alert.timestamp.desc()).limit(1000).all()
         
         for alert in alerts:
             writer.writerow([
@@ -169,9 +177,9 @@ def export_data(data_type):
                          'Destination Port', 'Protocol', 'Duration', 'Total Bytes', 'Packets Sent', 'Packets Received'])
         
         # Try with date filter first, fall back to all data
-        flows = NetworkFlow.query.filter(NetworkFlow.timestamp >= start_date).order_by(NetworkFlow.timestamp.desc()).limit(10000).all()
+        flows = filter_query(NetworkFlow.query, NetworkFlow).filter(NetworkFlow.timestamp >= start_date).order_by(NetworkFlow.timestamp.desc()).limit(10000).all()
         if not flows:
-            flows = NetworkFlow.query.order_by(NetworkFlow.timestamp.desc()).limit(10000).all()
+            flows = filter_query(NetworkFlow.query, NetworkFlow).order_by(NetworkFlow.timestamp.desc()).limit(10000).all()
         
         for flow in flows:
             writer.writerow([
@@ -198,16 +206,16 @@ def export_data(data_type):
         writer.writerow([])
         
         # Summary statistics - try with date filter, fall back to all data
-        total_alerts = Alert.query.filter(Alert.timestamp >= start_date).count()
-        total_flows = NetworkFlow.query.filter(NetworkFlow.timestamp >= start_date).count()
-        critical_alerts = Alert.query.filter(Alert.timestamp >= start_date, Alert.severity == 'critical').count()
+        total_alerts = filter_query(Alert.query, Alert).filter(Alert.timestamp >= start_date).count()
+        total_flows = filter_query(NetworkFlow.query, NetworkFlow).filter(NetworkFlow.timestamp >= start_date).count()
+        critical_alerts = filter_query(Alert.query, Alert).filter(Alert.timestamp >= start_date, Alert.severity == 'critical').count()
         
         # Fall back to all data if empty
         if total_alerts == 0:
-            total_alerts = Alert.query.count()
-            critical_alerts = Alert.query.filter(Alert.severity == 'critical').count()
+            total_alerts = filter_query(Alert.query, Alert).count()
+            critical_alerts = filter_query(Alert.query, Alert).filter(Alert.severity == 'critical').count()
         if total_flows == 0:
-            total_flows = NetworkFlow.query.count()
+            total_flows = filter_query(NetworkFlow.query, NetworkFlow).count()
         
         writer.writerow(['Summary Statistics'])
         writer.writerow(['Metric', 'Value'])
@@ -220,16 +228,16 @@ def export_data(data_type):
         writer.writerow(['Attack Type Distribution'])
         writer.writerow(['Attack Type', 'Count'])
         
-        attack_data = db.session.query(
+        attack_data = filter_query(db.session.query(
             Alert.attack_type,
             func.count().label('count')
-        ).filter(Alert.timestamp >= start_date).group_by(Alert.attack_type).all()
+        ), Alert).filter(Alert.timestamp >= start_date).group_by(Alert.attack_type).all()
         
         if not attack_data:
-            attack_data = db.session.query(
+            attack_data = filter_query(db.session.query(
                 Alert.attack_type,
                 func.count().label('count')
-            ).group_by(Alert.attack_type).all()
+            ), Alert).group_by(Alert.attack_type).all()
         
         for a in attack_data:
             writer.writerow([a.attack_type, a.count])
@@ -397,21 +405,22 @@ def api_top_sources():
     start_date = datetime.utcnow() - timedelta(days=days)
     
     # Try recent data first
-    data = db.session.query(
+    # Try recent data first
+    data = filter_query(db.session.query(
         Alert.source_ip,
         func.count().label('count'),
         func.count(distinct(Alert.attack_type)).label('attack_types')
-    ).filter(
+    ), Alert).filter(
         Alert.timestamp >= start_date
     ).group_by(Alert.source_ip).order_by(func.count().desc()).limit(limit).all()
     
     # If no recent data, get all data
     if not data:
-        data = db.session.query(
+        data = filter_query(db.session.query(
             Alert.source_ip,
             func.count().label('count'),
             func.count(distinct(Alert.attack_type)).label('attack_types')
-        ).group_by(Alert.source_ip).order_by(func.count().desc()).limit(limit).all()
+        ), Alert).group_by(Alert.source_ip).order_by(func.count().desc()).limit(limit).all()
     
     return jsonify([{
         'ip': d.source_ip,
@@ -429,19 +438,19 @@ def api_top_targets():
     start_date = datetime.utcnow() - timedelta(days=days)
     
     # Try recent data first
-    data = db.session.query(
+    data = filter_query(db.session.query(
         Alert.destination_ip,
         func.count().label('count')
-    ).filter(
+    ), Alert).filter(
         Alert.timestamp >= start_date
     ).group_by(Alert.destination_ip).order_by(func.count().desc()).limit(limit).all()
     
     # If no recent data, get all data
     if not data:
-        data = db.session.query(
+        data = filter_query(db.session.query(
             Alert.destination_ip,
             func.count().label('count')
-        ).group_by(Alert.destination_ip).order_by(func.count().desc()).limit(limit).all()
+        ), Alert).group_by(Alert.destination_ip).order_by(func.count().desc()).limit(limit).all()
     
     return jsonify([{
         'ip': d.destination_ip,
@@ -457,19 +466,19 @@ def api_protocol_distribution():
     start_date = datetime.utcnow() - timedelta(days=days)
     
     # Try recent data first
-    data = db.session.query(
+    data = filter_query(db.session.query(
         NetworkFlow.protocol,
         func.count().label('count')
-    ).filter(
+    ), NetworkFlow).filter(
         NetworkFlow.timestamp >= start_date
     ).group_by(NetworkFlow.protocol).all()
     
     # If no recent data, get all data
     if not data:
-        data = db.session.query(
+        data = filter_query(db.session.query(
             NetworkFlow.protocol,
             func.count().label('count')
-        ).group_by(NetworkFlow.protocol).all()
+        ), NetworkFlow).group_by(NetworkFlow.protocol).all()
     
     return jsonify({
         'labels': [d.protocol or 'Unknown' for d in data],
@@ -485,21 +494,21 @@ def api_hourly_heatmap():
     start_date = datetime.utcnow() - timedelta(days=days)
     
     # Try recent data first
-    data = db.session.query(
+    data = filter_query(db.session.query(
         func.strftime('%w', Alert.timestamp).label('day'),
         func.strftime('%H', Alert.timestamp).label('hour'),
         func.count().label('count')
-    ).filter(
+    ), Alert).filter(
         Alert.timestamp >= start_date
     ).group_by('day', 'hour').all()
     
     # If no recent data, get all data
     if not data:
-        data = db.session.query(
+        data = filter_query(db.session.query(
             func.strftime('%w', Alert.timestamp).label('day'),
             func.strftime('%H', Alert.timestamp).label('hour'),
             func.count().label('count')
-        ).group_by('day', 'hour').all()
+        ), Alert).group_by('day', 'hour').all()
     
     # Convert to heatmap format
     heatmap = [[0] * 24 for _ in range(7)]
@@ -519,59 +528,59 @@ def api_hourly_heatmap():
 def get_analytics_stats(start_date, end_date):
     """Calculate analytics statistics."""
     # Total alerts in date range
-    total_alerts = Alert.query.filter(
+    total_alerts = filter_query(Alert.query, Alert).filter(
         Alert.timestamp >= start_date,
         Alert.timestamp <= end_date
     ).count()
     
     # Total flows in date range
-    total_flows = NetworkFlow.query.filter(
+    total_flows = filter_query(NetworkFlow.query, NetworkFlow).filter(
         NetworkFlow.timestamp >= start_date,
         NetworkFlow.timestamp <= end_date
     ).count()
     
     # If no recent data, get all data
     if total_alerts == 0:
-        total_alerts = Alert.query.count()
+        total_alerts = filter_query(Alert.query, Alert).count()
     if total_flows == 0:
-        total_flows = NetworkFlow.query.count()
+        total_flows = filter_query(NetworkFlow.query, NetworkFlow).count()
     
     # Unique source IPs - try with date filter first
-    unique_sources = db.session.query(
+    unique_sources = filter_query(db.session.query(
         func.count(distinct(Alert.source_ip))
-    ).filter(
+    ), Alert).filter(
         Alert.timestamp >= start_date
     ).scalar() or 0
     
     # If no recent data, get all
     if unique_sources == 0:
-        unique_sources = db.session.query(
+        unique_sources = filter_query(db.session.query(
             func.count(distinct(Alert.source_ip))
-        ).scalar() or 0
+        ), Alert).scalar() or 0
     
     # Critical alerts - try with date filter first
-    critical_count = Alert.query.filter(
+    critical_count = filter_query(Alert.query, Alert).filter(
         Alert.timestamp >= start_date,
         Alert.severity == 'critical'
     ).count()
     
     # If no recent data, get all
     if critical_count == 0:
-        critical_count = Alert.query.filter(Alert.severity == 'critical').count()
+        critical_count = filter_query(Alert.query, Alert).filter(Alert.severity == 'critical').count()
     
     # Average alerts per day
     days_diff = (end_date - start_date).days or 1
     avg_daily = total_alerts / days_diff
     
     # Resolution rate - try with date filter first
-    total_acknowledged = Alert.query.filter(
+    total_acknowledged = filter_query(Alert.query, Alert).filter(
         Alert.timestamp >= start_date,
         Alert.acknowledged == True
     ).count()
     
     # If no recent data, get all
     if total_acknowledged == 0:
-        total_acknowledged = Alert.query.filter(Alert.acknowledged == True).count()
+        total_acknowledged = filter_query(Alert.query, Alert).filter(Alert.acknowledged == True).count()
     
     resolution_rate = (total_acknowledged / total_alerts * 100) if total_alerts > 0 else 0
     
@@ -588,19 +597,19 @@ def get_analytics_stats(start_date, end_date):
 def get_traffic_analytics(start_date, end_date):
     """Get detailed traffic analytics."""
     # Total flows - try with date filter first
-    total_flows = NetworkFlow.query.filter(
+    total_flows = filter_query(NetworkFlow.query, NetworkFlow).filter(
         NetworkFlow.timestamp >= start_date
     ).count()
     
     # If no recent data, get all data
     if total_flows == 0:
-        total_flows = NetworkFlow.query.count()
+        total_flows = filter_query(NetworkFlow.query, NetworkFlow).count()
     
     # Total bytes in/out (use bytes_recv and bytes_sent) - try with date filter first
-    bytes_data = db.session.query(
+    bytes_data = filter_query(db.session.query(
         func.sum(NetworkFlow.bytes_recv).label('bytes_in'),
         func.sum(NetworkFlow.bytes_sent).label('bytes_out')
-    ).filter(
+    ), NetworkFlow).filter(
         NetworkFlow.timestamp >= start_date
     ).first()
     
@@ -609,34 +618,34 @@ def get_traffic_analytics(start_date, end_date):
     
     # If no recent data, get all
     if total_bytes_in == 0 and total_bytes_out == 0:
-        bytes_data = db.session.query(
+        bytes_data = filter_query(db.session.query(
             func.sum(NetworkFlow.bytes_recv).label('bytes_in'),
             func.sum(NetworkFlow.bytes_sent).label('bytes_out')
-        ).first()
+        ), NetworkFlow).first()
         total_bytes_in = bytes_data.bytes_in or 0 if bytes_data else 0
         total_bytes_out = bytes_data.bytes_out or 0 if bytes_data else 0
     
     # Unique IPs - try with date filter first
-    unique_ips = db.session.query(
+    unique_ips = filter_query(db.session.query(
         func.count(distinct(NetworkFlow.source_ip))
-    ).filter(
+    ), NetworkFlow).filter(
         NetworkFlow.timestamp >= start_date
     ).scalar() or 0
     
     # If no recent data, get all
     if unique_ips == 0:
-        unique_ips = db.session.query(
+        unique_ips = filter_query(db.session.query(
             func.count(distinct(NetworkFlow.source_ip))
-        ).scalar() or 0
+        ), NetworkFlow).scalar() or 0
     
     # Top talkers - try with date filter first
-    top_talkers = db.session.query(
+    top_talkers = filter_query(db.session.query(
         NetworkFlow.source_ip,
         NetworkFlow.destination_ip,
         NetworkFlow.protocol,
         func.sum(NetworkFlow.total_bytes).label('bytes'),
         func.count().label('packets')
-    ).filter(
+    ), NetworkFlow).filter(
         NetworkFlow.timestamp >= start_date
     ).group_by(
         NetworkFlow.source_ip, 
@@ -646,32 +655,32 @@ def get_traffic_analytics(start_date, end_date):
     
     # If no recent data, get all
     if not top_talkers:
-        top_talkers = db.session.query(
+        top_talkers = filter_query(db.session.query(
             NetworkFlow.source_ip,
             NetworkFlow.destination_ip,
             NetworkFlow.protocol,
             func.sum(NetworkFlow.total_bytes).label('bytes'),
             func.count().label('packets')
-        ).group_by(
+        ), NetworkFlow).group_by(
             NetworkFlow.source_ip, 
             NetworkFlow.destination_ip,
             NetworkFlow.protocol
         ).order_by(func.sum(NetworkFlow.total_bytes).desc()).limit(20).all()
     
     # Protocol distribution - try with date filter first
-    protocols = db.session.query(
+    protocols = filter_query(db.session.query(
         NetworkFlow.protocol,
         func.count().label('count')
-    ).filter(
+    ), NetworkFlow).filter(
         NetworkFlow.timestamp >= start_date
     ).group_by(NetworkFlow.protocol).all()
     
     # If no recent data, get all
     if not protocols:
-        protocols = db.session.query(
+        protocols = filter_query(db.session.query(
             NetworkFlow.protocol,
             func.count().label('count')
-        ).group_by(NetworkFlow.protocol).all()
+        ), NetworkFlow).group_by(NetworkFlow.protocol).all()
     
     protocol_labels = [p.protocol or 'Unknown' for p in protocols] if protocols else ['TCP', 'UDP', 'ICMP', 'Other']
     protocol_values = [p.count for p in protocols] if protocols else [0, 0, 0, 0]
@@ -684,21 +693,21 @@ def get_traffic_analytics(start_date, end_date):
         format_str = '%Y-%m-%d'
     
     # Try with date filter first
-    timeline_data = db.session.query(
+    timeline_data = filter_query(db.session.query(
         func.strftime(format_str, NetworkFlow.timestamp).label('period'),
         func.sum(NetworkFlow.bytes_recv).label('bytes_in'),
         func.sum(NetworkFlow.bytes_sent).label('bytes_out')
-    ).filter(
+    ), NetworkFlow).filter(
         NetworkFlow.timestamp >= start_date
     ).group_by('period').order_by('period').all()
     
     # If no recent data, get all
     if not timeline_data:
-        timeline_data = db.session.query(
+        timeline_data = filter_query(db.session.query(
             func.strftime(format_str, NetworkFlow.timestamp).label('period'),
             func.sum(NetworkFlow.bytes_recv).label('bytes_in'),
             func.sum(NetworkFlow.bytes_sent).label('bytes_out')
-        ).group_by('period').order_by('period').all()
+        ), NetworkFlow).group_by('period').order_by('period').all()
     
     # Generate labels and data for the last N periods
     timeline_labels = []
@@ -743,88 +752,88 @@ def get_traffic_analytics(start_date, end_date):
 def get_threat_analytics(start_date, end_date):
     """Get detailed threat analytics."""
     # Total threats - try with date filter first
-    total_threats = Alert.query.filter(
+    total_threats = filter_query(Alert.query, Alert).filter(
         Alert.timestamp >= start_date
     ).count()
     
     # If no recent data, get all data
     if total_threats == 0:
-        total_threats = Alert.query.count()
+        total_threats = filter_query(Alert.query, Alert).count()
     
     # Critical count - try with date filter first
-    critical_count = Alert.query.filter(
+    critical_count = filter_query(Alert.query, Alert).filter(
         Alert.timestamp >= start_date,
         Alert.severity == 'critical'
     ).count()
     
     # If no recent data, get all
     if critical_count == 0:
-        critical_count = Alert.query.filter(Alert.severity == 'critical').count()
+        critical_count = filter_query(Alert.query, Alert).filter(Alert.severity == 'critical').count()
     
     # Unique sources - try with date filter first
-    unique_sources = db.session.query(
+    unique_sources = filter_query(db.session.query(
         func.count(distinct(Alert.source_ip))
-    ).filter(
+    ), Alert).filter(
         Alert.timestamp >= start_date
     ).scalar() or 0
     
     # If no recent data, get all
     if unique_sources == 0:
-        unique_sources = db.session.query(
+        unique_sources = filter_query(db.session.query(
             func.count(distinct(Alert.source_ip))
-        ).scalar() or 0
+        ), Alert).scalar() or 0
     
     # Blocked (acknowledged) count - try with date filter first
-    blocked_count = Alert.query.filter(
+    blocked_count = filter_query(Alert.query, Alert).filter(
         Alert.timestamp >= start_date,
         Alert.acknowledged == True
     ).count()
     
     # If no recent data, get all
     if blocked_count == 0:
-        blocked_count = Alert.query.filter(Alert.acknowledged == True).count()
+        blocked_count = filter_query(Alert.query, Alert).filter(Alert.acknowledged == True).count()
     
     # Recent threats - try with date filter first
-    recent_threats = Alert.query.filter(
+    recent_threats = filter_query(Alert.query, Alert).filter(
         Alert.timestamp >= start_date
     ).order_by(Alert.timestamp.desc()).limit(20).all()
     
     # If no recent data, get all
     if not recent_threats:
-        recent_threats = Alert.query.order_by(Alert.timestamp.desc()).limit(20).all()
+        recent_threats = filter_query(Alert.query, Alert).order_by(Alert.timestamp.desc()).limit(20).all()
     
     # Attack type distribution - try with date filter first
-    attack_types = db.session.query(
+    attack_types = filter_query(db.session.query(
         Alert.attack_type,
         func.count().label('count')
-    ).filter(
+    ), Alert).filter(
         Alert.timestamp >= start_date
     ).group_by(Alert.attack_type).order_by(func.count().desc()).limit(6).all()
     
     # If no recent data, get all
     if not attack_types:
-        attack_types = db.session.query(
+        attack_types = filter_query(db.session.query(
             Alert.attack_type,
             func.count().label('count')
-        ).group_by(Alert.attack_type).order_by(func.count().desc()).limit(6).all()
+        ), Alert).group_by(Alert.attack_type).order_by(func.count().desc()).limit(6).all()
     
     attack_labels = [a.attack_type or 'Unknown' for a in attack_types] if attack_types else ['DDoS', 'Port Scan', 'Brute Force', 'SQL Injection', 'XSS', 'Malware']
     attack_values = [a.count for a in attack_types] if attack_types else [0, 0, 0, 0, 0, 0]
     
     # Daily trend - try with date filter first
-    daily_trend = db.session.query(
+    daily_trend = filter_query(db.session.query(
         func.date(Alert.timestamp).label('date'),
         func.count().label('count')
-    ).filter(
+    ), Alert).filter(
         Alert.timestamp >= start_date
     ).group_by(func.date(Alert.timestamp)).order_by('date').all()
     
     # If no recent data, get all
     if not daily_trend:
-        daily_trend = db.session.query(
+        daily_trend = filter_query(db.session.query(
             func.date(Alert.timestamp).label('date'),
             func.count().label('count')
-        ).group_by(func.date(Alert.timestamp)).order_by('date').all()
+        ), Alert).group_by(func.date(Alert.timestamp)).order_by('date').all()
     
     trend_labels = [str(d.date) for d in daily_trend][-7:] if daily_trend else ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
     trend_values = [d.count for d in daily_trend][-7:] if daily_trend else [0, 0, 0, 0, 0, 0, 0]

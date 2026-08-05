@@ -62,7 +62,28 @@ def create_app(config_name=None):
     
     # Create database tables
     with app.app_context():
+        # Drop all tables on start to start fresh
+        try:
+            db.drop_all()
+            app.logger.info("Dropped all tables for a fresh start")
+        except Exception as e:
+            app.logger.error(f"Failed to drop tables: {e}")
+            db.session.rollback()
+            
         db.create_all()
+        
+        # Clean up uploaded files in datasets directory (except sample files) - disabled to support dataset selection dropdown
+        # try:
+        #     datasets_dir = app.config.get('DATASETS_DIR') or os.path.join(app.root_path, '..', 'data', 'datasets')
+        #     if os.path.exists(datasets_dir):
+        #         for filename in os.listdir(datasets_dir):
+        #             if filename not in ['sample_traffic.csv', 'threat_intelligence.json']:
+        #                 file_path = os.path.join(datasets_dir, filename)
+        #                 if os.path.isfile(file_path):
+        #                     os.remove(file_path)
+        #         app.logger.info("Cleaned up uploaded files in datasets directory")
+        # except Exception as e:
+        #     app.logger.error(f"Failed to clean datasets directory: {e}")
         
         # Create default admin user if not exists
         from app.models.database import User

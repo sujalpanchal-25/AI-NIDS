@@ -145,11 +145,11 @@ typing-extensions==4.8.0
 asyncio-throttle==1.0.2
 
 # SOC Integration
-python-jira==3.6.0  # JIRA ticketing
-pagerduty==0.0.5  # PagerDuty alerts
+jira==3.6.0  # JIRA ticketing
+pagerduty==0.9.0  # PagerDuty alerts
 
 # SIEM Integration
-python-syslog-client==1.0.2
+
 
 # IP/GeoIP Analysis
 geoip2==4.8.0

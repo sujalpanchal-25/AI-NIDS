@@ -4,7 +4,7 @@ Alerts Routes
 Alert management views and operations.
 """
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta
 from sqlalchemy import func
@@ -34,6 +34,11 @@ def alert_list():
     # Build query
     query = Alert.query
     
+    # Filter by selected dataset if active
+    selected_batch_id = session.get('selected_dataset')
+    if selected_batch_id:
+        query = query.filter(Alert.batch_id == selected_batch_id)
+        
     if severity:
         query = query.filter(Alert.severity == severity)
     
@@ -70,7 +75,10 @@ def alert_list():
     
     # Get filter options
     severities = ['critical', 'high', 'medium', 'low', 'info']
-    attack_types = db.session.query(Alert.attack_type).distinct().all()
+    q_attack_types = db.session.query(Alert.attack_type).distinct()
+    if selected_batch_id:
+        q_attack_types = q_attack_types.filter(Alert.batch_id == selected_batch_id)
+    attack_types = q_attack_types.all()
     attack_types = [at[0] for at in attack_types if at[0]]
     
     return render_template(

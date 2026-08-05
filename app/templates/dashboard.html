@@ -9,7 +9,7 @@
         <div class="grid-overlay"></div>
         <div class="scanning-beam"></div>
     </div>
-    
+
     <!-- Page Header -->
     <div class="page-header cyber-header">
         <div>
@@ -20,18 +20,29 @@
             <p class="page-subtitle">Real-time neural network security monitoring</p>
         </div>
         <div class="header-actions">
-            <span class="live-indicator cyber-pulse">
-                <span class="pulse-ring"></span>
-                <span class="pulse-dot"></span>
-                <span class="status-text">LIVE MONITORING</span>
-            </span>
+            <select id="dataset-selector" class="cyber-select me-2" onchange="changeSelectedDataset(this.value)">
+                <option value="">LATEST LIVE TRAFFIC</option>
+                {% for d in datasets %}
+                <option value="{{ d.filename }}" {% if selected_dataset_name == d.filename %}selected{% endif %}>
+                    {% if d.is_sample %}🛡️ Built-in Sample (sample_traffic.csv){% else %}📊 {{ d.filename }}{% endif %}
+                </option>
+                {% endfor %}
+            </select>
+            <button class="btn cyber-btn-sample" onclick="loadSampleDataset()">
+                <i class="bi bi-file-earmark-play"></i>
+                <span>SAMPLE DATA</span>
+            </button>
+            <button class="btn cyber-btn-upload" onclick="openUploadModal()">
+                <i class="bi bi-upload"></i>
+                <span>UPLOAD CSV</span>
+            </button>
             <button class="btn cyber-btn-refresh" onclick="refreshDashboard()">
                 <i class="bi bi-arrow-clockwise"></i>
                 <span>SYNC</span>
             </button>
         </div>
     </div>
-    
+
     <!-- Stats Cards -->
     <div class="stats-row cyber-stats">
         <div class="stat-card cyber-card">
@@ -45,12 +56,12 @@
                 <p>Network Flows</p>
             </div>
             <div class="stat-trend {% if stats.flow_trend >= 0 %}up{% else %}down{% endif %}" id="flow-trend">
-                <i class="bi bi-arrow-{% if stats.flow_trend >= 0 %}up{% else %}down{% endif %}"></i> 
+                <i class="bi bi-arrow-{% if stats.flow_trend >= 0 %}up{% else %}down{% endif %}"></i>
                 {{ stats.flow_trend|abs_value }}%
             </div>
             <div class="stat-sparkline" id="flows-spark"></div>
         </div>
-        
+
         <div class="stat-card cyber-card">
             <div class="card-glow orange"></div>
             <div class="stat-icon orange">
@@ -62,12 +73,12 @@
                 <p>Threat Alerts</p>
             </div>
             <div class="stat-trend {% if stats.alert_trend <= 0 %}down{% else %}up{% endif %}" id="alert-trend">
-                <i class="bi bi-arrow-{% if stats.alert_trend <= 0 %}down{% else %}up{% endif %}"></i> 
+                <i class="bi bi-arrow-{% if stats.alert_trend <= 0 %}down{% else %}up{% endif %}"></i>
                 {{ stats.alert_trend|abs_value }}%
             </div>
             <div class="stat-sparkline" id="alerts-spark"></div>
         </div>
-        
+
         <div class="stat-card cyber-card critical">
             <div class="card-glow red"></div>
             <div class="stat-icon red">
@@ -80,7 +91,7 @@
             </div>
             <div class="threat-indicator"></div>
         </div>
-        
+
         <div class="stat-card cyber-card">
             <div class="card-glow green"></div>
             <div class="stat-icon green">
@@ -96,7 +107,7 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Main Content Grid -->
     <div class="dashboard-grid">
         <!-- Traffic Chart -->
@@ -123,7 +134,7 @@
                 <span>DATA STREAM ACTIVE</span>
             </div>
         </div>
-        
+
         <!-- Recent Alerts -->
         <div class="dashboard-card cyber-panel">
             <div class="panel-border"></div>
@@ -165,7 +176,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Attack Distribution -->
         <div class="dashboard-card cyber-panel">
             <div class="panel-border"></div>
@@ -179,7 +190,7 @@
                 <canvas id="attackChart" height="200"></canvas>
             </div>
         </div>
-        
+
         <!-- Top Source IPs -->
         <div class="dashboard-card cyber-panel">
             <div class="panel-border"></div>
@@ -215,7 +226,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Severity Breakdown -->
         <div class="dashboard-card cyber-panel">
             <div class="panel-border"></div>
@@ -229,7 +240,7 @@
                 <canvas id="severityChart" height="200"></canvas>
             </div>
         </div>
-        
+
         <!-- System Status -->
         <div class="dashboard-card cyber-panel system-panel">
             <div class="panel-border"></div>
@@ -278,526 +289,1153 @@
 
 <!-- Cyber Dashboard Styles -->
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&display=swap');
-
-.cyber-dashboard {
-    position: relative;
-}
-
-.cyber-bg-elements {
-    position: fixed;
-    top: 0;
-    left: var(--sidebar-width);
-    right: 0;
-    bottom: 0;
-    pointer-events: none;
-    z-index: 0;
-}
-
-.grid-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-image: 
-        linear-gradient(rgba(0, 242, 254, 0.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0, 242, 254, 0.02) 1px, transparent 1px);
-    background-size: 40px 40px;
-}
-
-.scanning-beam {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(0, 242, 254, 0.5), transparent);
-    animation: scanBeam 8s linear infinite;
-}
-
-@keyframes scanBeam {
-    0% { top: 0; opacity: 0; }
-    5% { opacity: 1; }
-    95% { opacity: 1; }
-    100% { top: 100%; opacity: 0; }
-}
-
-.cyber-header .page-title {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    letter-spacing: 2px;
-}
-
-.title-icon {
-    color: #00f2fe;
-    margin-right: 0.5rem;
-    animation: iconPulse 2s ease-in-out infinite;
-}
-
-@keyframes iconPulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
-
-.live-indicator.cyber-pulse {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    background: rgba(0, 242, 254, 0.1);
-    padding: 0.5rem 1rem;
-    border-radius: 20px;
-    border: 1px solid rgba(0, 242, 254, 0.2);
-    position: relative;
-}
-
-.pulse-ring {
-    position: absolute;
-    left: 12px;
-    width: 8px;
-    height: 8px;
-    border: 1px solid #00f2fe;
-    border-radius: 50%;
-    animation: pulseRing 1.5s ease-out infinite;
-}
-
-@keyframes pulseRing {
-    0% { transform: scale(1); opacity: 1; }
-    100% { transform: scale(2.5); opacity: 0; }
-}
-
-.pulse-dot {
-    width: 8px;
-    height: 8px;
-    background: #00f2fe;
-    border-radius: 50%;
-    box-shadow: 0 0 10px #00f2fe;
-}
-
-.status-text {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    font-size: 0.7rem;
-    letter-spacing: 1px;
-    color: #00f2fe;
-}
-
-.cyber-btn-refresh {
-    background: transparent;
-    border: 1px solid rgba(0, 242, 254, 0.3);
-    color: #00f2fe;
-    padding: 0.5rem 1rem;
-    border-radius: 5px;
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    font-size: 0.75rem;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.cyber-btn-refresh:hover {
-    background: rgba(0, 242, 254, 0.1);
-    border-color: #00f2fe;
-}
-
-.stat-card.cyber-card {
-    position: relative;
-    overflow: hidden;
-    background: linear-gradient(135deg, rgba(18, 18, 26, 0.9) 0%, rgba(10, 10, 15, 0.95) 100%);
-}
-
-.card-glow {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    opacity: 0.8;
-}
-
-.card-glow.blue { background: linear-gradient(90deg, transparent, #00f2fe, transparent); }
-.card-glow.orange { background: linear-gradient(90deg, transparent, #ff9f43, transparent); }
-.card-glow.red { background: linear-gradient(90deg, transparent, #ff4757, transparent); }
-.card-glow.green { background: linear-gradient(90deg, transparent, #00d26a, transparent); }
-
-.stat-card.cyber-card.critical {
-    animation: criticalPulse 2s ease-in-out infinite;
-}
-
-@keyframes criticalPulse {
-    0%, 100% { box-shadow: 0 0 0 rgba(255, 71, 87, 0); }
-    50% { box-shadow: 0 0 20px rgba(255, 71, 87, 0.2); }
-}
-
-.stat-icon .icon-pulse {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 100%;
-    height: 100%;
-    border-radius: 12px;
-    animation: iconPulseBg 3s ease-in-out infinite;
-}
-
-@keyframes iconPulseBg {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 242, 254, 0.3); }
-    50% { box-shadow: 0 0 15px 5px rgba(0, 242, 254, 0.1); }
-}
-
-.cyber-number {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    background: linear-gradient(135deg, #fff 0%, #a0a0a0 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-.accuracy-bar {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.accuracy-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #00d26a, #00f2fe);
-    transition: width 1s ease;
-}
-
-.threat-indicator {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 8px;
-    height: 8px;
-    background: #ff4757;
-    border-radius: 50%;
-    animation: threatBlink 1s infinite;
-}
-
-@keyframes threatBlink {
-    0%, 100% { opacity: 1; box-shadow: 0 0 10px #ff4757; }
-    50% { opacity: 0.5; box-shadow: 0 0 5px #ff4757; }
-}
-
-.cyber-panel {
-    position: relative;
-    background: linear-gradient(135deg, rgba(18, 18, 26, 0.95) 0%, rgba(10, 10, 15, 0.98) 100%);
-    border: 1px solid rgba(0, 242, 254, 0.1);
-}
-
-.panel-border {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(0, 242, 254, 0.5), transparent);
-}
-
-.cyber-panel .card-header h3 {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    font-size: 0.85rem;
-    letter-spacing: 1px;
-}
-
-.header-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    background: rgba(0, 242, 254, 0.1);
-    border-radius: 5px;
-    margin-right: 0.5rem;
-    color: #00f2fe;
-}
-
-.header-icon.alert-icon {
-    background: rgba(255, 159, 67, 0.1);
-    color: #ff9f43;
-}
-
-.cyber-select {
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(0, 242, 254, 0.2);
-    color: #00f2fe;
-    padding: 0.4rem 1rem;
-    border-radius: 4px;
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    font-size: 0.7rem;
-    letter-spacing: 1px;
-    cursor: pointer;
-}
-
-.cyber-link {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    font-size: 0.7rem;
-    letter-spacing: 1px;
-    color: #00f2fe;
-    text-decoration: none;
-    transition: all 0.3s ease;
-}
-
-.cyber-link:hover {
-    text-shadow: 0 0 10px #00f2fe;
-}
-
-.panel-status {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    padding: 0.5rem 1rem;
-    background: rgba(0, 0, 0, 0.2);
-    border-top: 1px solid rgba(0, 242, 254, 0.1);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.65rem;
-    color: #666;
-    letter-spacing: 1px;
-}
-
-.status-indicator {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-}
-
-.status-indicator.online {
-    background: #00f2fe;
-    box-shadow: 0 0 8px #00f2fe;
-    animation: statusPulse 2s infinite;
-}
-
-@keyframes statusPulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
-
-.cyber-alert {
-    position: relative;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 6px;
-    margin-bottom: 0.5rem;
-    padding: 0.75rem;
-    padding-left: 0.5rem;
-    border: 1px solid transparent;
-    transition: all 0.3s ease;
-}
-
-.cyber-alert:hover {
-    border-color: rgba(0, 242, 254, 0.2);
-    background: rgba(0, 242, 254, 0.05);
-}
-
-.alert-severity-bar {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    border-radius: 3px 0 0 3px;
-}
-
-.cyber-alert.critical .alert-severity-bar { background: #ff4757; }
-.cyber-alert.high .alert-severity-bar { background: #ff9f43; }
-.cyber-alert.medium .alert-severity-bar { background: #ffc107; }
-.cyber-alert.low .alert-severity-bar { background: #00d26a; }
-
-.ip-tag {
-    font-family: 'Courier New', monospace;
-    font-size: 0.8rem;
-    color: #00f2fe;
-}
-
-.time-tag {
-    font-family: 'Courier New', monospace;
-    font-size: 0.8rem;
-    color: #666;
-}
-
-.cyber-badge {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    font-size: 0.6rem;
-    letter-spacing: 1px;
-    padding: 0.3rem 0.6rem;
-    border-radius: 3px;
-}
-
-.cyber-badge.critical { background: rgba(255, 71, 87, 0.2); color: #ff4757; border: 1px solid rgba(255, 71, 87, 0.3); }
-.cyber-badge.high { background: rgba(255, 159, 67, 0.2); color: #ff9f43; border: 1px solid rgba(255, 159, 67, 0.3); }
-.cyber-badge.medium { background: rgba(255, 193, 7, 0.2); color: #ffc107; border: 1px solid rgba(255, 193, 7, 0.3); }
-.cyber-badge.low { background: rgba(0, 210, 106, 0.2); color: #00d26a; border: 1px solid rgba(0, 210, 106, 0.3); }
-
-.cyber-empty {
-    text-align: center;
-    padding: 2rem;
-}
-
-.cyber-empty .shield-icon {
-    position: relative;
-    display: inline-block;
-    margin-bottom: 1rem;
-}
-
-.cyber-empty .shield-icon i {
-    font-size: 3rem;
-    color: #00f2fe;
-}
-
-.shield-pulse {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 60px;
-    height: 60px;
-    border: 1px solid rgba(0, 242, 254, 0.3);
-    border-radius: 50%;
-    animation: shieldPulseAnim 2s ease-out infinite;
-}
-
-@keyframes shieldPulseAnim {
-    0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-    100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
-}
-
-.cyber-empty p {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    color: #00f2fe;
-    letter-spacing: 2px;
-    margin: 0;
-}
-
-.cyber-empty .sub-text {
-    display: block;
-    font-size: 0.8rem;
-    color: #666;
-    margin-top: 0.5rem;
-}
-
-.cyber-ip {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.75rem;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 6px;
-    margin-bottom: 0.5rem;
-    position: relative;
-}
-
-.ip-rank {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    font-size: 0.7rem;
-    color: #666;
-    min-width: 25px;
-}
-
-.ip-address {
-    font-family: 'Courier New', monospace;
-    color: #fff;
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.ip-icon {
-    color: #ff4757;
-    font-size: 0.6rem;
-}
-
-.ip-count {
-    text-align: right;
-}
-
-.count-value {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    color: #ff4757;
-    font-size: 0.9rem;
-}
-
-.count-label {
-    font-size: 0.7rem;
-    color: #666;
-    margin-left: 0.25rem;
-}
-
-.threat-bar {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.threat-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #ff4757, #ff6b7a);
-}
-
-.cyber-status .status-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.6rem 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-}
-
-.cyber-status .status-label {
-    flex: 1;
-    color: #a0a0a0;
-    font-size: 0.85rem;
-}
-
-.cyber-status .status-badge {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    font-size: 0.6rem;
-    letter-spacing: 1px;
-    padding: 0.3rem 0.6rem;
-    border-radius: 3px;
-    background: rgba(0, 242, 254, 0.1);
-    color: #00f2fe;
-    border: 1px solid rgba(0, 242, 254, 0.2);
-}
-
-.system-uptime {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    padding: 0.5rem 1rem;
-    background: rgba(0, 210, 106, 0.05);
-    border-top: 1px solid rgba(0, 210, 106, 0.1);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.uptime-label {
-    font-size: 0.65rem;
-    color: #666;
-    letter-spacing: 1px;
-}
-
-.uptime-value {
-    font-family: 'Orbitron', 'Inter', sans-serif;
-    font-size: 0.85rem;
-    color: #00d26a;
-}
-
-.system-panel {
-    padding-bottom: 2.5rem;
-}
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&display=swap');
+
+    .cyber-dashboard {
+        position: relative;
+    }
+
+    .cyber-bg-elements {
+        position: fixed;
+        top: 0;
+        left: var(--sidebar-width);
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    .grid-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-image:
+            linear-gradient(rgba(0, 242, 254, 0.02) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0, 242, 254, 0.02) 1px, transparent 1px);
+        background-size: 40px 40px;
+    }
+
+    .scanning-beam {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(0, 242, 254, 0.5), transparent);
+        animation: scanBeam 8s linear infinite;
+    }
+
+    @keyframes scanBeam {
+        0% {
+            top: 0;
+            opacity: 0;
+        }
+
+        5% {
+            opacity: 1;
+        }
+
+        95% {
+            opacity: 1;
+        }
+
+        100% {
+            top: 100%;
+            opacity: 0;
+        }
+    }
+
+    .cyber-header .page-title {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        letter-spacing: 2px;
+    }
+
+    .title-icon {
+        color: #00f2fe;
+        margin-right: 0.5rem;
+        animation: iconPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes iconPulse {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.5;
+        }
+    }
+
+    .live-indicator.cyber-pulse {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: rgba(0, 242, 254, 0.1);
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        border: 1px solid rgba(0, 242, 254, 0.2);
+        position: relative;
+    }
+
+    .pulse-ring {
+        position: absolute;
+        left: 12px;
+        width: 8px;
+        height: 8px;
+        border: 1px solid #00f2fe;
+        border-radius: 50%;
+        animation: pulseRing 1.5s ease-out infinite;
+    }
+
+    @keyframes pulseRing {
+        0% {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+        100% {
+            transform: scale(2.5);
+            opacity: 0;
+        }
+    }
+
+    .pulse-dot {
+        width: 8px;
+        height: 8px;
+        background: #00f2fe;
+        border-radius: 50%;
+        box-shadow: 0 0 10px #00f2fe;
+    }
+
+    .status-text {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.7rem;
+        letter-spacing: 1px;
+        color: #00f2fe;
+    }
+
+    .cyber-btn-refresh {
+        background: transparent;
+        border: 1px solid rgba(0, 242, 254, 0.3);
+        color: #00f2fe;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .cyber-btn-refresh:hover {
+        background: rgba(0, 242, 254, 0.1);
+        border-color: #00f2fe;
+    }
+
+    .stat-card.cyber-card {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(135deg, rgba(18, 18, 26, 0.9) 0%, rgba(10, 10, 15, 0.95) 100%);
+    }
+
+    .card-glow {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        opacity: 0.8;
+    }
+
+    .card-glow.blue {
+        background: linear-gradient(90deg, transparent, #00f2fe, transparent);
+    }
+
+    .card-glow.orange {
+        background: linear-gradient(90deg, transparent, #ff9f43, transparent);
+    }
+
+    .card-glow.red {
+        background: linear-gradient(90deg, transparent, #ff4757, transparent);
+    }
+
+    .card-glow.green {
+        background: linear-gradient(90deg, transparent, #00d26a, transparent);
+    }
+
+    .stat-card.cyber-card.critical {
+        animation: criticalPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes criticalPulse {
+
+        0%,
+        100% {
+            box-shadow: 0 0 0 rgba(255, 71, 87, 0);
+        }
+
+        50% {
+            box-shadow: 0 0 20px rgba(255, 71, 87, 0.2);
+        }
+    }
+
+    .stat-icon .icon-pulse {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 100%;
+        height: 100%;
+        border-radius: 12px;
+        animation: iconPulseBg 3s ease-in-out infinite;
+    }
+
+    @keyframes iconPulseBg {
+
+        0%,
+        100% {
+            box-shadow: 0 0 0 0 rgba(0, 242, 254, 0.3);
+        }
+
+        50% {
+            box-shadow: 0 0 15px 5px rgba(0, 242, 254, 0.1);
+        }
+    }
+
+    .cyber-number {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        background: linear-gradient(135deg, #fff 0%, #a0a0a0 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .accuracy-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .accuracy-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #00d26a, #00f2fe);
+        transition: width 1s ease;
+    }
+
+    .threat-indicator {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 8px;
+        height: 8px;
+        background: #ff4757;
+        border-radius: 50%;
+        animation: threatBlink 1s infinite;
+    }
+
+    @keyframes threatBlink {
+
+        0%,
+        100% {
+            opacity: 1;
+            box-shadow: 0 0 10px #ff4757;
+        }
+
+        50% {
+            opacity: 0.5;
+            box-shadow: 0 0 5px #ff4757;
+        }
+    }
+
+    .cyber-panel {
+        position: relative;
+        background: linear-gradient(135deg, rgba(18, 18, 26, 0.95) 0%, rgba(10, 10, 15, 0.98) 100%);
+        border: 1px solid rgba(0, 242, 254, 0.1);
+    }
+
+    .panel-border {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(0, 242, 254, 0.5), transparent);
+    }
+
+    .cyber-panel .card-header h3 {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.85rem;
+        letter-spacing: 1px;
+    }
+
+    .header-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        background: rgba(0, 242, 254, 0.1);
+        border-radius: 5px;
+        margin-right: 0.5rem;
+        color: #00f2fe;
+    }
+
+    .header-icon.alert-icon {
+        background: rgba(255, 159, 67, 0.1);
+        color: #ff9f43;
+    }
+
+    .cyber-select {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(0, 242, 254, 0.2);
+        color: #00f2fe;
+        padding: 0.4rem 1rem;
+        border-radius: 4px;
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.7rem;
+        letter-spacing: 1px;
+        cursor: pointer;
+    }
+
+    .cyber-link {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.7rem;
+        letter-spacing: 1px;
+        color: #00f2fe;
+        text-decoration: none;
+        transition: all 0.3s ease;
+    }
+
+    .cyber-link:hover {
+        text-shadow: 0 0 10px #00f2fe;
+    }
+
+    .panel-status {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 0.5rem 1rem;
+        background: rgba(0, 0, 0, 0.2);
+        border-top: 1px solid rgba(0, 242, 254, 0.1);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.65rem;
+        color: #666;
+        letter-spacing: 1px;
+    }
+
+    .status-indicator {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+    }
+
+    .status-indicator.online {
+        background: #00f2fe;
+        box-shadow: 0 0 8px #00f2fe;
+        animation: statusPulse 2s infinite;
+    }
+
+    @keyframes statusPulse {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.5;
+        }
+    }
+
+    .cyber-alert {
+        position: relative;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 6px;
+        margin-bottom: 0.5rem;
+        padding: 0.75rem;
+        padding-left: 0.5rem;
+        border: 1px solid transparent;
+        transition: all 0.3s ease;
+    }
+
+    .cyber-alert:hover {
+        border-color: rgba(0, 242, 254, 0.2);
+        background: rgba(0, 242, 254, 0.05);
+    }
+
+    .alert-severity-bar {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        border-radius: 3px 0 0 3px;
+    }
+
+    .cyber-alert.critical .alert-severity-bar {
+        background: #ff4757;
+    }
+
+    .cyber-alert.high .alert-severity-bar {
+        background: #ff9f43;
+    }
+
+    .cyber-alert.medium .alert-severity-bar {
+        background: #ffc107;
+    }
+
+    .cyber-alert.low .alert-severity-bar {
+        background: #00d26a;
+    }
+
+    .ip-tag {
+        font-family: 'Courier New', monospace;
+        font-size: 0.8rem;
+        color: #00f2fe;
+    }
+
+    .time-tag {
+        font-family: 'Courier New', monospace;
+        font-size: 0.8rem;
+        color: #666;
+    }
+
+    .cyber-badge {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.6rem;
+        letter-spacing: 1px;
+        padding: 0.3rem 0.6rem;
+        border-radius: 3px;
+    }
+
+    .cyber-badge.critical {
+        background: rgba(255, 71, 87, 0.2);
+        color: #ff4757;
+        border: 1px solid rgba(255, 71, 87, 0.3);
+    }
+
+    .cyber-badge.high {
+        background: rgba(255, 159, 67, 0.2);
+        color: #ff9f43;
+        border: 1px solid rgba(255, 159, 67, 0.3);
+    }
+
+    .cyber-badge.medium {
+        background: rgba(255, 193, 7, 0.2);
+        color: #ffc107;
+        border: 1px solid rgba(255, 193, 7, 0.3);
+    }
+
+    .cyber-badge.low {
+        background: rgba(0, 210, 106, 0.2);
+        color: #00d26a;
+        border: 1px solid rgba(0, 210, 106, 0.3);
+    }
+
+    .cyber-empty {
+        text-align: center;
+        padding: 2rem;
+    }
+
+    .cyber-empty .shield-icon {
+        position: relative;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }
+
+    .cyber-empty .shield-icon i {
+        font-size: 3rem;
+        color: #00f2fe;
+    }
+
+    .shield-pulse {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 60px;
+        height: 60px;
+        border: 1px solid rgba(0, 242, 254, 0.3);
+        border-radius: 50%;
+        animation: shieldPulseAnim 2s ease-out infinite;
+    }
+
+    @keyframes shieldPulseAnim {
+        0% {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+        }
+
+        100% {
+            transform: translate(-50%, -50%) scale(1.5);
+            opacity: 0;
+        }
+    }
+
+    .cyber-empty p {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        color: #00f2fe;
+        letter-spacing: 2px;
+        margin: 0;
+    }
+
+    .cyber-empty .sub-text {
+        display: block;
+        font-size: 0.8rem;
+        color: #666;
+        margin-top: 0.5rem;
+    }
+
+    .cyber-ip {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.75rem;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 6px;
+        margin-bottom: 0.5rem;
+        position: relative;
+    }
+
+    .ip-rank {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.7rem;
+        color: #666;
+        min-width: 25px;
+    }
+
+    .ip-address {
+        font-family: 'Courier New', monospace;
+        color: #fff;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .ip-icon {
+        color: #ff4757;
+        font-size: 0.6rem;
+    }
+
+    .ip-count {
+        text-align: right;
+    }
+
+    .count-value {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        color: #ff4757;
+        font-size: 0.9rem;
+    }
+
+    .count-label {
+        font-size: 0.7rem;
+        color: #666;
+        margin-left: 0.25rem;
+    }
+
+    .threat-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .threat-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #ff4757, #ff6b7a);
+    }
+
+    .cyber-status .status-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.6rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .cyber-status .status-label {
+        flex: 1;
+        color: #a0a0a0;
+        font-size: 0.85rem;
+    }
+
+    .cyber-status .status-badge {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.6rem;
+        letter-spacing: 1px;
+        padding: 0.3rem 0.6rem;
+        border-radius: 3px;
+        background: rgba(0, 242, 254, 0.1);
+        color: #00f2fe;
+        border: 1px solid rgba(0, 242, 254, 0.2);
+    }
+
+    .system-uptime {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 0.5rem 1rem;
+        background: rgba(0, 210, 106, 0.05);
+        border-top: 1px solid rgba(0, 210, 106, 0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .uptime-label {
+        font-size: 0.65rem;
+        color: #666;
+        letter-spacing: 1px;
+    }
+
+    .uptime-value {
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.85rem;
+        color: #00d26a;
+    }
+
+    .system-panel {
+        padding-bottom: 2.5rem;
+    }
+
+    /* Extra Cyber Button Styles */
+    .cyber-btn-upload {
+        background: transparent;
+        border: 1px solid rgba(139, 92, 246, 0.4);
+        color: #a55eea;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .cyber-btn-upload:hover {
+        background: rgba(139, 92, 246, 0.15);
+        border-color: #a55eea;
+        box-shadow: 0 0 10px rgba(139, 92, 246, 0.4);
+    }
+
+    .cyber-btn-sample {
+        background: transparent;
+        border: 1px solid rgba(0, 210, 106, 0.4);
+        color: #00d26a;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .cyber-btn-sample:hover {
+        background: rgba(0, 210, 106, 0.15);
+        border-color: #00d26a;
+        box-shadow: 0 0 10px rgba(0, 210, 106, 0.4);
+    }
+
+    /* Modal styles (cyber theme) */
+    .cyber-modal .modal-content {
+        background: linear-gradient(135deg, #0e0e15 0%, #08080c 100%);
+        border: 1px solid rgba(0, 242, 254, 0.3);
+        box-shadow: 0 0 30px rgba(0, 242, 254, 0.2);
+        color: #fff;
+        font-family: 'Inter', sans-serif;
+        border-radius: 12px;
+    }
+
+    .cyber-modal .modal-header {
+        border-bottom: 1px solid rgba(0, 242, 254, 0.15);
+        padding: 1.2rem;
+    }
+
+    .cyber-modal .modal-title {
+        font-family: 'Orbitron', sans-serif;
+        letter-spacing: 2px;
+        color: #00f2fe;
+        font-size: 1.1rem;
+        text-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+    }
+
+    .cyber-modal .btn-close {
+        filter: invert(1) grayscale(1) brightness(2);
+    }
+
+    .cyber-modal .modal-body {
+        padding: 2rem;
+    }
+
+    .cyber-modal .modal-footer {
+        border-top: 1px solid rgba(0, 242, 254, 0.15);
+    }
+
+    /* Drag and Drop Zone */
+    .drag-drop-zone {
+        border: 2px dashed rgba(0, 242, 254, 0.3);
+        border-radius: 10px;
+        padding: 3rem 2rem;
+        text-align: center;
+        background: rgba(0, 242, 254, 0.02);
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .drag-drop-zone.dragover {
+        border-color: #00f2fe;
+        background: rgba(0, 242, 254, 0.08);
+        box-shadow: inset 0 0 20px rgba(0, 242, 254, 0.1);
+    }
+
+    .drag-drop-zone i {
+        font-size: 3.5rem;
+        color: #00f2fe;
+        margin-bottom: 1rem;
+        transition: all 0.3s ease;
+    }
+
+    .drag-drop-zone:hover i {
+        transform: translateY(-5px);
+        text-shadow: 0 0 15px #00f2fe;
+    }
+
+    .drag-drop-zone h5 {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1rem;
+        letter-spacing: 1px;
+        margin-bottom: 0.5rem;
+    }
+
+    .drag-drop-zone p {
+        color: #888;
+        font-size: 0.85rem;
+        margin-bottom: 0;
+    }
+
+    /* Glowing Cyber Progress Bar */
+    .cyber-progress-wrapper {
+        margin-top: 1.5rem;
+    }
+
+    .progress-meta {
+        display: flex;
+        justify-content: space-between;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 0.75rem;
+        color: #00f2fe;
+        margin-bottom: 0.4rem;
+    }
+
+    .cyber-progress {
+        height: 6px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 3px;
+        overflow: hidden;
+        position: relative;
+        border: 1px solid rgba(0, 242, 254, 0.1);
+    }
+
+    .cyber-progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #00f2fe, #a55eea);
+        width: 0%;
+        transition: width 0.3s ease;
+        box-shadow: 0 0 10px rgba(0, 242, 254, 0.5);
+    }
+
+    /* Loading & Analysis Screen */
+    .analysis-loading-state {
+        text-align: center;
+        padding: 2.5rem 1rem;
+    }
+
+    .cyber-loader {
+        position: relative;
+        width: 100px;
+        height: 100px;
+        margin: 0 auto 2rem;
+    }
+
+    .loader-ring {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border: 4px solid transparent;
+        border-top-color: #00f2fe;
+        border-bottom-color: #a55eea;
+        border-radius: 50%;
+        animation: loaderRotate 2s linear infinite;
+    }
+
+    .loader-shield {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 2.5rem;
+        color: #00f2fe;
+        animation: shieldPulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes loaderRotate {
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
+    @keyframes shieldPulse {
+
+        0%,
+        100% {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 0.8;
+            text-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+        }
+
+        50% {
+            transform: translate(-50%, -50%) scale(1.1);
+            opacity: 1;
+            text-shadow: 0 0 20px rgba(0, 242, 254, 0.7);
+        }
+    }
+
+    .analysis-loading-state h4 {
+        font-family: 'Orbitron', sans-serif;
+        letter-spacing: 1.5px;
+        color: #00f2fe;
+        margin-bottom: 0.75rem;
+    }
+
+    .analysis-step-text {
+        font-size: 0.85rem;
+        color: #888;
+        margin-bottom: 1.5rem;
+    }
+
+    /* Results Display grid */
+    .results-summary-state {
+        animation: fadeIn 0.5s ease;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .results-header-text {
+        font-family: 'Orbitron', sans-serif;
+        color: #00f2fe;
+        font-size: 1.1rem;
+        letter-spacing: 1px;
+        margin-bottom: 1.5rem;
+        text-align: center;
+    }
+
+    .results-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .result-card {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 1.2rem;
+        text-align: center;
+        transition: all 0.3s ease;
+    }
+
+    .result-card:hover {
+        border-color: rgba(0, 242, 254, 0.2);
+        background: rgba(0, 242, 254, 0.02);
+        transform: translateY(-2px);
+    }
+
+    .result-card.threats {
+        border-color: rgba(255, 71, 87, 0.2);
+    }
+
+    .result-card.threats:hover {
+        border-color: rgba(255, 71, 87, 0.4);
+        background: rgba(255, 71, 87, 0.02);
+    }
+
+    .result-card.normal {
+        border-color: rgba(0, 210, 106, 0.2);
+    }
+
+    .result-card.normal:hover {
+        border-color: rgba(0, 210, 106, 0.4);
+        background: rgba(0, 210, 106, 0.02);
+    }
+
+    .result-val {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 0.3rem;
+        color: #fff;
+    }
+
+    .result-card.threats .result-val {
+        color: #ff4757;
+    }
+
+    .result-card.normal .result-val {
+        color: #00d26a;
+    }
+
+    .result-lbl {
+        font-size: 0.75rem;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    /* Reports download actions */
+    .reports-actions-title {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 0.8rem;
+        letter-spacing: 1px;
+        color: #888;
+        margin-bottom: 0.8rem;
+        text-transform: uppercase;
+    }
+
+    .reports-actions-row {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .btn-download {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        border-radius: 6px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 0.75rem;
+        letter-spacing: 0.5px;
+        font-weight: 500;
+        border: 1px solid transparent;
+        transition: all 0.3s ease;
+        color: #fff;
+        cursor: pointer;
+    }
+
+    .btn-download.pdf {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%);
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-download.pdf:hover {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.3) 0%, rgba(139, 92, 246, 0.3) 100%);
+        border-color: #ef4444;
+        box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-download.csv {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(6, 182, 212, 0.2) 100%);
+        border-color: rgba(59, 130, 246, 0.3);
+    }
+
+    .btn-download.csv:hover {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.3) 0%, rgba(6, 182, 212, 0.3) 100%);
+        border-color: #3b82f6;
+        box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .btn-download.json {
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(6, 182, 212, 0.2) 100%);
+        border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-download.json:hover {
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.3) 0%, rgba(6, 182, 212, 0.3) 100%);
+        border-color: #10b981;
+        box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-cyber-primary {
+        background: #00f2fe;
+        color: #000;
+        border: none;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 0.8rem;
+        letter-spacing: 1px;
+        padding: 0.6rem 1.5rem;
+        border-radius: 5px;
+        transition: all 0.3s ease;
+        width: 100%;
+    }
+
+    .btn-cyber-primary:hover {
+        background: #fff;
+        box-shadow: 0 0 15px #00f2fe;
+    }
 </style>
+<!-- Cyber Dataset Upload & Analysis Modal -->
+<div class="modal fade cyber-modal" id="datasetUploadModal" data-bs-backdrop="static" data-bs-keyboard="false"
+    tabindex="-1" aria-labelledby="datasetUploadModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="datasetUploadModalLabel">
+                    <span class="title-icon">◈</span> DATASET ANALYSIS HUB
+                </h5>
+                <button type="button" class="btn-close" id="close-modal-x" data-bs-dismiss="modal" aria-label="Close"
+                    onclick="onModalClose()"></button>
+            </div>
+            <div class="modal-body">
+
+                <!-- State 1: Dropzone for uploading -->
+                <div id="modal-state-upload">
+                    <div class="drag-drop-zone" id="drag-drop-zone" onclick="triggerFileInput()">
+                        <i class="bi bi-cloud-arrow-up"></i>
+                        <h5>DRAG & DROP DATASET</h5>
+                        <p>Accepts only CSV network traffic captures up to 100MB</p>
+                        <p class="text-info mt-2" style="font-size: 0.75rem;">Click to browse files on your system</p>
+                        <input type="file" id="dataset-file-input" accept=".csv" style="display: none;"
+                            onchange="handleFileSelect(event)">
+                    </div>
+
+                    <!-- Uploading Progress Bar -->
+                    <div class="cyber-progress-wrapper d-none" id="upload-progress-wrapper">
+                        <div class="progress-meta">
+                            <span>UPLOADING FLOW RECORDSETS...</span>
+                            <span id="upload-pct-label">0%</span>
+                        </div>
+                        <div class="cyber-progress">
+                            <div class="cyber-progress-fill" id="upload-progress-fill"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- State 2: Analyzing Loading Screen -->
+                <div id="modal-state-analyzing" class="d-none">
+                    <div class="analysis-loading-state">
+                        <div class="cyber-loader">
+                            <div class="loader-ring"></div>
+                            <div class="loader-shield">🛡️</div>
+                        </div>
+                        <h4>ANALYZING NETWORK CAPTURES</h4>
+                        <div class="analysis-step-text" id="analysis-step-text">Initializing dataset parser...</div>
+
+                        <!-- Analysis Progress Bar -->
+                        <div class="cyber-progress-wrapper">
+                            <div class="progress-meta">
+                                <span>THREAT ENGINE PROGRESS</span>
+                                <span id="analysis-pct-label">0%</span>
+                            </div>
+                            <div class="cyber-progress">
+                                <div class="cyber-progress-fill" id="analysis-progress-fill"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- State 3: Completed Results Summary & Download Reports -->
+                <div id="modal-state-results" class="d-none">
+                    <div class="results-summary-state">
+                        <div class="results-header-text">
+                            <i class="bi bi-shield-check text-success"></i> INTRUSION ANALYSIS COMPLETE
+                        </div>
+
+                        <div class="results-grid">
+                            <div class="result-card">
+                                <div class="result-val" id="res-total">0</div>
+                                <div class="result-lbl">Processed Records</div>
+                            </div>
+                            <div class="result-card threats">
+                                <div class="result-val" id="res-threats">0</div>
+                                <div class="result-lbl">Detected Threats</div>
+                            </div>
+                            <div class="result-card normal">
+                                <div class="result-val" id="res-normal">0</div>
+                                <div class="result-lbl">Normal Flows</div>
+                            </div>
+                            <div class="result-card">
+                                <div class="result-val text-warning" id="res-top"
+                                    style="font-size: 1.1rem; height: 2.1rem; display: flex; align-items: center; justify-content: center;">
+                                    None</div>
+                                <div class="result-lbl">Top Attack Vector</div>
+                            </div>
+                            <div class="result-card">
+                                <div class="result-val text-info" id="res-confidence">0%</div>
+                                <div class="result-lbl">Avg Confidence</div>
+                            </div>
+                            <div class="result-card">
+                                <div class="result-val text-secondary" id="res-time">0.0s</div>
+                                <div class="result-lbl">Processing Time</div>
+                            </div>
+                        </div>
+
+                        <div class="reports-actions-container">
+                            <div class="reports-actions-title">DOWNLOAD SEC-OPS REPORTS</div>
+                            <div class="reports-actions-row">
+                                <button class="btn-download pdf" onclick="downloadReport('pdf')">
+                                    <i class="bi bi-file-earmark-pdf"></i> PDF REPORT
+                                </button>
+                                <button class="btn-download csv" onclick="downloadReport('csv')">
+                                    <i class="bi bi-file-earmark-spreadsheet"></i> CSV RESULTS
+                                </button>
+                                <button class="btn-download json" onclick="downloadReport('json')">
+                                    <i class="bi bi-filetype-json"></i> JSON LOGS
+                                </button>
+                            </div>
+                        </div>
+
+                        <button class="btn-cyber-primary" data-bs-dismiss="modal" onclick="onModalClose()">
+                            RETURN TO COMMAND CENTER
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -805,143 +1443,146 @@
 <script>
     // Initialize dashboard
     let trafficChart, attackChart, severityChart;
-    
-    document.addEventListener('DOMContentLoaded', function() {
+
+    document.addEventListener('DOMContentLoaded', function () {
         initTrafficChart();
         initAttackChart();
         initSeverityChart();
-        
+
         // Auto-refresh every 30 seconds
         setInterval(refreshDashboard, 30000);
     });
-    
+
     // Traffic Chart
     function initTrafficChart() {
         const ctx = document.getElementById('trafficChart');
         if (!ctx) return;
-        
-        const trafficData = {{ traffic_data | tojson | safe if traffic_data else '{"labels":[],"flows":[]}' }};
-        
-        trafficChart = new Chart(ctx.getContext('2d'), {
-            type: 'line',
-            data: {
-                labels: trafficData.labels || [],
-                datasets: [{
-                    label: 'Network Flows',
-                    data: trafficData.flows || [],
-                    borderColor: '#00f2fe',
-                    backgroundColor: 'rgba(0, 242, 254, 0.1)',
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 0,
-                    pointHoverRadius: 6,
-                    borderWidth: 2
-                }]
+
+        const trafficData = {{ traffic_data | tojson | safe if traffic_data else '{"labels":[],"flows":[]}'
+    }};
+
+    trafficChart = new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: trafficData.labels || [],
+            datasets: [{
+                label: 'Network Flows',
+                data: trafficData.flows || [],
+                borderColor: '#00f2fe',
+                backgroundColor: 'rgba(0, 242, 254, 0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 0,
+                pointHoverRadius: 6,
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false }
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false }
+            scales: {
+                x: {
+                    grid: { color: 'rgba(0, 242, 254, 0.05)' },
+                    ticks: { color: '#666', font: { family: 'Orbitron', size: 9 }, maxRotation: 45 }
                 },
-                scales: {
-                    x: {
-                        grid: { color: 'rgba(0, 242, 254, 0.05)' },
-                        ticks: { color: '#666', font: { family: 'Orbitron', size: 9 }, maxRotation: 45 }
-                    },
-                    y: {
-                        grid: { color: 'rgba(0, 242, 254, 0.05)' },
-                        ticks: { color: '#666', font: { family: 'Orbitron', size: 9 } },
-                        beginAtZero: true
-                    }
+                y: {
+                    grid: { color: 'rgba(0, 242, 254, 0.05)' },
+                    ticks: { color: '#666', font: { family: 'Orbitron', size: 9 } },
+                    beginAtZero: true
                 }
             }
-        });
+        }
+    });
     }
-    
+
     // Attack Distribution Chart
     function initAttackChart() {
         const ctx = document.getElementById('attackChart');
         if (!ctx) return;
-        
-        const attackData = {{ attack_distribution | tojson | safe if attack_distribution else '{"labels":[],"values":[]}' }};
-        
-        // If no data, show placeholder
-        if (!attackData.labels || attackData.labels.length === 0) {
-            ctx.parentElement.innerHTML = `
+
+        const attackData = {{ attack_distribution | tojson | safe if attack_distribution else '{"labels":[],"values":[]}'
+    }};
+
+    // If no data, show placeholder
+    if (!attackData.labels || attackData.labels.length === 0) {
+        ctx.parentElement.innerHTML = `
                 <div class="empty-chart-state">
                     <i class="bi bi-shield-check" style="font-size: 3rem; color: #00d26a;"></i>
                     <p style="color: #a0a0a0; margin-top: 1rem;">No attacks detected</p>
                     <span style="color: #666; font-size: 0.8rem;">Your network is secure</span>
                 </div>
             `;
-            return;
-        }
-        
-        attackChart = new Chart(ctx.getContext('2d'), {
-            type: 'doughnut',
-            data: {
-                labels: attackData.labels,
-                datasets: [{
-                    data: attackData.values,
-                    backgroundColor: [
-                        '#ff4757', '#ff9f43', '#ffc107', '#00d26a', '#00f2fe', '#a55eea', '#5f27cd', '#1dd1a1'
-                    ],
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: { 
-                            color: '#a0a0a0', 
-                            padding: 15,
-                            font: { family: 'Orbitron', size: 9 }
-                        }
-                    }
-                },
-                cutout: '65%'
-            }
-        });
+        return;
     }
-    
+
+    attackChart = new Chart(ctx.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+            labels: attackData.labels,
+            datasets: [{
+                data: attackData.values,
+                backgroundColor: [
+                    '#ff4757', '#ff9f43', '#ffc107', '#00d26a', '#00f2fe', '#a55eea', '#5f27cd', '#1dd1a1'
+                ],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: '#a0a0a0',
+                        padding: 15,
+                        font: { family: 'Orbitron', size: 9 }
+                    }
+                }
+            },
+            cutout: '65%'
+        }
+    });
+    }
+
     // Severity Chart
     function initSeverityChart() {
         const ctx = document.getElementById('severityChart');
         if (!ctx) return;
-        
-        const severityData = {{ severity_data | tojson | safe if severity_data else '{"labels":["CRITICAL","HIGH","MEDIUM","LOW","INFO"],"values":[0,0,0,0,0]}' }};
-        
-        severityChart = new Chart(ctx.getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels: severityData.labels || ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'],
-                datasets: [{
-                    data: severityData.values || [0, 0, 0, 0, 0],
-                    backgroundColor: ['#ff4757', '#ff9f43', '#ffc107', '#00d26a', '#00f2fe'],
-                    borderRadius: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { 
-                        grid: { display: false }, 
-                        ticks: { color: '#666', font: { family: 'Orbitron', size: 8 } } 
-                    },
-                    y: { 
-                        grid: { color: 'rgba(0, 242, 254, 0.05)' }, 
-                        ticks: { color: '#666', font: { family: 'Orbitron', size: 9 } },
-                        beginAtZero: true
-                    }
+
+        const severityData = {{ severity_data | tojson | safe if severity_data else '{"labels":["CRITICAL","HIGH","MEDIUM","LOW","INFO"],"values":[0,0,0,0,0]}'
+    }};
+
+    severityChart = new Chart(ctx.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: severityData.labels || ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'],
+            datasets: [{
+                data: severityData.values || [0, 0, 0, 0, 0],
+                backgroundColor: ['#ff4757', '#ff9f43', '#ffc107', '#00d26a', '#00f2fe'],
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#666', font: { family: 'Orbitron', size: 8 } }
+                },
+                y: {
+                    grid: { color: 'rgba(0, 242, 254, 0.05)' },
+                    ticks: { color: '#666', font: { family: 'Orbitron', size: 9 } },
+                    beginAtZero: true
                 }
             }
-        });
+        }
+    });
     }
-    
+
     // Refresh Dashboard - SYNC BUTTON
     function refreshDashboard() {
         const syncBtn = document.querySelector('.cyber-btn-refresh');
@@ -949,7 +1590,7 @@
             syncBtn.classList.add('syncing');
             syncBtn.innerHTML = '<i class="bi bi-arrow-repeat spinning"></i><span>SYNCING...</span>';
         }
-        
+
         fetch('/dashboard/sync')
             .then(response => response.json())
             .then(data => {
@@ -959,24 +1600,140 @@
                     document.getElementById('total-alerts').textContent = data.stats.total_alerts.toLocaleString();
                     document.getElementById('critical-alerts').textContent = data.stats.critical_alerts.toLocaleString();
                     document.getElementById('detection-rate').textContent = data.stats.detection_rate + '%';
-                    
+
                     // Update accuracy bar
                     const accBar = document.getElementById('accuracy-bar');
                     if (accBar) accBar.style.width = data.stats.detection_rate + '%';
-                    
+
                     // Update traffic chart
                     if (trafficChart && data.traffic_data) {
                         trafficChart.data.labels = data.traffic_data.labels;
                         trafficChart.data.datasets[0].data = data.traffic_data.flows;
                         trafficChart.update();
                     }
-                    
+
                     // Update severity chart
                     if (severityChart && data.severity_data) {
                         severityChart.data.datasets[0].data = data.severity_data.values;
                         severityChart.update();
                     }
-                    
+
+                    // Update attack distribution chart
+                    if (data.attack_distribution) {
+                        const attackCtx = document.getElementById('attackChart');
+                        if (attackCtx) {
+                            if (data.attack_distribution.labels && data.attack_distribution.labels.length > 0) {
+                                // Re-initialize container if placeholder state was shown
+                                const canvasTest = document.getElementById('attackChart');
+                                if (!canvasTest) {
+                                    attackCtx.parentElement.innerHTML = '<canvas id="attackChart" height="200"></canvas>';
+                                    initAttackChart();
+                                } else if (!attackChart) {
+                                    initAttackChart();
+                                } else {
+                                    attackChart.data.labels = data.attack_distribution.labels;
+                                    attackChart.data.datasets[0].data = data.attack_distribution.values;
+                                    attackChart.update();
+                                }
+                            } else {
+                                // Empty state placeholder
+                                attackCtx.parentElement.innerHTML = `
+                                    <div class="empty-chart-state">
+                                        <i class="bi bi-shield-check" style="font-size: 3rem; color: #00d26a;"></i>
+                                        <p style="color: #a0a0a0; margin-top: 1rem;">No attacks detected</p>
+                                        <span style="color: #666; font-size: 0.8rem;">Your network is secure</span>
+                                    </div>
+                                `;
+                                attackChart = null;
+                            }
+                        }
+                    }
+
+                    // Update Threat Feed list
+                    const recentAlertsContainer = document.getElementById('recent-alerts');
+                    if (recentAlertsContainer && data.recent_alerts) {
+                        if (data.recent_alerts.length > 0) {
+                            let html = '';
+                            data.recent_alerts.forEach(alert => {
+                                const severity = alert.severity.toLowerCase();
+                                const date = new Date(alert.timestamp);
+                                const timeStr = date.toTimeString().split(' ')[0];
+
+                                const icons = {
+                                    'critical': '🔴',
+                                    'high': '🟠',
+                                    'medium': '🟡',
+                                    'low': '🟢',
+                                    'info': '🔵'
+                                };
+                                const severityIcon = icons[severity] || '⚪';
+
+                                html += `
+                                    <div class="alert-item cyber-alert ${severity}">
+                                        <div class="alert-severity-bar"></div>
+                                        <div class="alert-icon">${severityIcon}</div>
+                                        <div class="alert-content">
+                                            <div class="alert-title">${alert.attack_type || 'Unknown Attack'}</div>
+                                            <div class="alert-meta">
+                                                <span class="ip-tag">${alert.source_ip}</span>
+                                                <span class="separator">│</span>
+                                                <span class="time-tag">${timeStr}</span>
+                                            </div>
+                                        </div>
+                                        <span class="cyber-badge ${severity}">${alert.severity.toUpperCase()}</span>
+                                    </div>
+                                `;
+                            });
+                            recentAlertsContainer.innerHTML = html;
+                        } else {
+                            recentAlertsContainer.innerHTML = `
+                                <div class="empty-state cyber-empty">
+                                    <div class="shield-icon">
+                                        <i class="bi bi-shield-check"></i>
+                                        <div class="shield-pulse"></div>
+                                    </div>
+                                    <p>PERIMETER SECURE</p>
+                                    <span class="sub-text">No active threats detected</span>
+                                </div>
+                            `;
+                        }
+                    }
+
+                    // Update Hostile Origins list (top sources)
+                    const topSourcesContainer = document.querySelector('.cyber-ip-list');
+                    if (topSourcesContainer && data.top_sources) {
+                        if (data.top_sources.length > 0) {
+                            let html = '';
+                            data.top_sources.forEach((source, index) => {
+                                const clampVal = Math.min(100, Math.max(0, source.count));
+                                html += `
+                                    <div class="ip-item cyber-ip">
+                                        <div class="ip-rank">#${index + 1}</div>
+                                        <div class="ip-address">
+                                            <span class="ip-icon">⬢</span>
+                                            ${source.ip}
+                                        </div>
+                                        <div class="ip-count">
+                                            <span class="count-value">${source.count}</span>
+                                            <span class="count-label">alerts</span>
+                                        </div>
+                                        <div class="threat-bar">
+                                            <div class="threat-fill" style="width: ${clampVal}%"></div>
+                                        </div>
+                                    </div>
+                                `;
+                            });
+                            topSourcesContainer.innerHTML = html;
+                        } else {
+                            topSourcesContainer.innerHTML = `
+                                <div class="empty-state cyber-empty small">
+                                    <i class="bi bi-shield-check"></i>
+                                    <p>ALL CLEAR</p>
+                                </div>
+                            `;
+                        }
+                    }
+
                     // Show success feedback
                     showToast('Dashboard synchronized', 'success');
                 }
@@ -992,7 +1749,7 @@
                 }
             });
     }
-    
+
     function updateTrafficChart() {
         const hours = document.getElementById('traffic-range').value;
         fetch(`/dashboard/traffic?hours=${hours}`)
@@ -1005,56 +1762,409 @@
                 }
             });
     }
-    
+
     function showToast(message, type) {
         const toast = document.createElement('div');
         toast.className = `cyber-toast ${type}`;
         toast.innerHTML = `<i class="bi bi-${type === 'success' ? 'check-circle' : 'x-circle'}"></i> ${message}`;
         document.body.appendChild(toast);
-        
+
         setTimeout(() => toast.classList.add('show'), 10);
         setTimeout(() => {
             toast.classList.remove('show');
             setTimeout(() => toast.remove(), 300);
         }, 3000);
     }
+
+    // ===== DATASET UPLOAD & BACKGROUND ANALYSIS JS CONTROLLERS =====
+    let uploadModal;
+    let currentBatchId = null;
+    let statusInterval = null;
+
+    // Open Modal and reset states
+    function openUploadModal() {
+        if (!uploadModal) {
+            uploadModal = new bootstrap.Modal(document.getElementById('datasetUploadModal'));
+        }
+
+        // Reset states
+        showModalState('upload');
+        document.getElementById('upload-progress-wrapper').classList.add('d-none');
+        document.getElementById('upload-progress-fill').style.width = '0%';
+        document.getElementById('upload-pct-label').textContent = '0%';
+        document.getElementById('dataset-file-input').value = '';
+        currentBatchId = null;
+
+        if (statusInterval) {
+            clearInterval(statusInterval);
+            statusInterval = null;
+        }
+
+        uploadModal.show();
+        setTimeout(setupDragDrop, 300); // short delay to ensure DOM is rendered
+    }
+
+    // Close modal & sync dashboard
+    function onModalClose() {
+        if (statusInterval) {
+            clearInterval(statusInterval);
+            statusInterval = null;
+        }
+        refreshDashboard();
+    }
+
+    // Helper to toggle modal view states
+    function showModalState(state) {
+        document.getElementById('modal-state-upload').classList.add('d-none');
+        document.getElementById('modal-state-analyzing').classList.add('d-none');
+        document.getElementById('modal-state-results').classList.add('d-none');
+
+        if (state === 'upload') {
+            document.getElementById('modal-state-upload').classList.remove('d-none');
+        } else if (state === 'analyzing') {
+            document.getElementById('modal-state-analyzing').classList.remove('d-none');
+        } else if (state === 'results') {
+            document.getElementById('modal-state-results').classList.remove('d-none');
+        }
+    }
+
+    // Drag & drop zone setup
+    function setupDragDrop() {
+        const dropZone = document.getElementById('drag-drop-zone');
+        if (!dropZone) return;
+
+        // Remove old listeners to avoid duplicates
+        const newDropZone = dropZone.cloneNode(true);
+        dropZone.parentNode.replaceChild(newDropZone, dropZone);
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            newDropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                newDropZone.classList.add('dragover');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            newDropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                newDropZone.classList.remove('dragover');
+            }, false);
+        });
+
+        newDropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                uploadDatasetFile(files[0]);
+            }
+        }, false);
+    }
+
+    function triggerFileInput() {
+        document.getElementById('dataset-file-input').click();
+    }
+
+    function handleFileSelect(event) {
+        const files = event.target.files;
+        if (files.length > 0) {
+            uploadDatasetFile(files[0]);
+        }
+    }
+
+    // Upload CSV using XMLHttpRequest for upload progress tracking
+    function uploadDatasetFile(file) {
+        if (!file.name.endsWith('.csv')) {
+            showToast('Invalid file format. Only CSV allowed.', 'error');
+            return;
+        }
+
+        const wrapper = document.getElementById('upload-progress-wrapper');
+        const fill = document.getElementById('upload-progress-fill');
+        const pctLabel = document.getElementById('upload-pct-label');
+
+        wrapper.classList.remove('d-none');
+        fill.style.width = '0%';
+        pctLabel.textContent = '0%';
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/upload-dataset', true);
+
+        // Track upload progress
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                fill.style.width = percent + '%';
+                pctLabel.textContent = percent + '%';
+            }
+        });
+
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                const response = JSON.parse(xhr.responseText);
+                if (response.success && response.batch_id) {
+                    showToast('Dataset uploaded successfully!', 'success');
+                    pollAnalysisStatus(response.batch_id);
+                } else {
+                    showToast(response.error || 'Upload failed', 'error');
+                    wrapper.classList.add('d-none');
+                }
+            } else {
+                let errMsg = 'File upload failed';
+                try {
+                    const resp = JSON.parse(xhr.responseText);
+                    errMsg = resp.error || errMsg;
+                } catch (e) { }
+                showToast(errMsg, 'error');
+                wrapper.classList.add('d-none');
+            }
+        };
+
+        xhr.onerror = function () {
+            showToast('Network error occurred during upload', 'error');
+            wrapper.classList.add('d-none');
+        };
+
+        xhr.send(formData);
+    }
+
+    // Poll progress status endpoint
+    function pollAnalysisStatus(batchId) {
+        currentBatchId = batchId;
+        showModalState('analyzing');
+
+        const fill = document.getElementById('analysis-progress-fill');
+        const pctLabel = document.getElementById('analysis-pct-label');
+        const stepText = document.getElementById('analysis-step-text');
+
+        fill.style.width = '0%';
+        pctLabel.textContent = '0%';
+        stepText.textContent = 'Initializing dataset parser...';
+
+        statusInterval = setInterval(() => {
+            fetch(`/api/upload-dataset/status/${batchId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'processing') {
+                        fill.style.width = data.progress + '%';
+                        pctLabel.textContent = data.progress + '%';
+                        stepText.textContent = data.message;
+                    } else if (data.status === 'completed') {
+                        clearInterval(statusInterval);
+                        statusInterval = null;
+
+                        fill.style.width = '100%';
+                        pctLabel.textContent = '100%';
+                        stepText.textContent = data.message;
+
+                        setTimeout(() => {
+                            displayAnalysisResults(data.results);
+                        }, 500);
+                    } else if (data.status === 'failed') {
+                        clearInterval(statusInterval);
+                        statusInterval = null;
+                        showToast(data.message || 'Analysis failed', 'error');
+                        showModalState('upload');
+                        document.getElementById('upload-progress-wrapper').classList.add('d-none');
+                    }
+                })
+                .catch(err => {
+                    console.error('Status check error:', err);
+                });
+        }, 800);
+    }
+
+    // Display results statistics
+    function displayAnalysisResults(results) {
+        if (!results) return;
+
+        document.getElementById('res-total').textContent = results.processed_records.toLocaleString();
+        document.getElementById('res-threats').textContent = results.detected_threats.toLocaleString();
+        document.getElementById('res-normal').textContent = results.normal_traffic.toLocaleString();
+
+        const topVector = document.getElementById('res-top');
+        topVector.textContent = results.top_attack;
+        if (results.detected_threats > 0) {
+            topVector.className = 'result-val text-danger';
+        } else {
+            topVector.className = 'result-val text-success';
+        }
+
+        document.getElementById('res-confidence').textContent = results.avg_confidence + '%';
+        document.getElementById('res-time').textContent = results.processing_time;
+
+        showModalState('results');
+    }
+
+    // Sample dataset execution
+    function loadSampleDataset() {
+        if (!uploadModal) {
+            uploadModal = new bootstrap.Modal(document.getElementById('datasetUploadModal'));
+        }
+
+        showModalState('analyzing');
+        uploadModal.show();
+
+        const fill = document.getElementById('analysis-progress-fill');
+        const pctLabel = document.getElementById('analysis-pct-label');
+        const stepText = document.getElementById('analysis-step-text');
+
+        fill.style.width = '0%';
+        pctLabel.textContent = '0%';
+        stepText.textContent = 'Contacting server for sample traffic...';
+
+        fetch('/api/upload-dataset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ use_sample: 'true' })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && data.batch_id) {
+                    showToast('Sample dataset found, threat analysis active.', 'success');
+                    pollAnalysisStatus(data.batch_id);
+                } else {
+                    showToast(data.error || 'Failed to start sample analysis', 'error');
+                    uploadModal.hide();
+                }
+            })
+            .catch(err => {
+                console.error('Sample start error:', err);
+                showToast('Connection error starting sample analysis', 'error');
+                uploadModal.hide();
+            });
+    }
+
+    // Download reports
+    function downloadReport(format) {
+        if (!currentBatchId) {
+            showToast('No active batch session to download report', 'error');
+            return;
+        }
+        window.location.href = `/api/export-report/${currentBatchId}/${format}`;
+    }
+
+    // Change selected dataset
+    function changeSelectedDataset(filename) {
+        showToast('Switching dataset...', 'success');
+
+        fetch('/api/select-dataset', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ filename: filename })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    if (data.analyzed) {
+                        showToast(data.message, 'success');
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 500);
+                    } else {
+                        if (!uploadModal) {
+                            uploadModal = new bootstrap.Modal(document.getElementById('datasetUploadModal'));
+                        }
+                        showModalState('analyzing');
+                        uploadModal.show();
+
+                        const fill = document.getElementById('analysis-progress-fill');
+                        const pctLabel = document.getElementById('analysis-pct-label');
+                        const stepText = document.getElementById('analysis-step-text');
+
+                        fill.style.width = '0%';
+                        pctLabel.textContent = '0%';
+                        stepText.textContent = 'Initializing background analysis...';
+
+                        showToast('Analyzing dataset...', 'success');
+                        pollAnalysisStatus(data.batch_id);
+                    }
+                } else {
+                    showToast(data.error || 'Failed to select dataset', 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Select dataset error:', err);
+                showToast('Connection error selecting dataset', 'error');
+            });
+    }
+
+    // Modal Close handler
+    function onModalClose() {
+        window.location.reload();
+    }
 </script>
 
 <style>
-.cyber-btn-refresh.syncing { opacity: 0.7; pointer-events: none; }
-.spinning { animation: spin 1s linear infinite; }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .cyber-btn-refresh.syncing {
+        opacity: 0.7;
+        pointer-events: none;
+    }
 
-.cyber-toast {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    padding: 1rem 1.5rem;
-    background: rgba(18, 18, 26, 0.95);
-    border: 1px solid rgba(0, 242, 254, 0.3);
-    border-radius: 8px;
-    color: #fff;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    transform: translateY(100px);
-    opacity: 0;
-    transition: all 0.3s ease;
-    z-index: 9999;
-}
-.cyber-toast.show { transform: translateY(0); opacity: 1; }
-.cyber-toast.success { border-color: #00d26a; }
-.cyber-toast.success i { color: #00d26a; }
-.cyber-toast.error { border-color: #ff4757; }
-.cyber-toast.error i { color: #ff4757; }
+    .spinning {
+        animation: spin 1s linear infinite;
+    }
 
-.empty-chart-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 200px;
-    text-align: center;
-}
+    @keyframes spin {
+        from {
+            transform: rotate(0deg);
+        }
+
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .cyber-toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 1rem 1.5rem;
+        background: rgba(18, 18, 26, 0.95);
+        border: 1px solid rgba(0, 242, 254, 0.3);
+        border-radius: 8px;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        transform: translateY(100px);
+        opacity: 0;
+        transition: all 0.3s ease;
+        z-index: 9999;
+    }
+
+    .cyber-toast.show {
+        transform: translateY(0);
+        opacity: 1;
+    }
+
+    .cyber-toast.success {
+        border-color: #00d26a;
+    }
+
+    .cyber-toast.success i {
+        color: #00d26a;
+    }
+
+    .cyber-toast.error {
+        border-color: #ff4757;
+    }
+
+    .cyber-toast.error i {
+        color: #ff4757;
+    }
+
+    .empty-chart-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 200px;
+        text-align: center;
+    }
 </style>
 {% endblock %}
