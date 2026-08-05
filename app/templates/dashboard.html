@@ -187,7 +187,9 @@
                 </h3>
             </div>
             <div class="card-body">
-                <canvas id="attackChart" height="200"></canvas>
+                <div style="position:relative; height:220px; width:100%;">
+                    <canvas id="attackChart"></canvas>
+                </div>
             </div>
         </div>
 
@@ -1532,13 +1534,15 @@
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             plugins: {
                 legend: {
                     position: 'bottom',
                     labels: {
                         color: '#a0a0a0',
-                        padding: 15,
-                        font: { family: 'Orbitron', size: 9 }
+                        padding: 10,
+                        font: { family: 'Orbitron', size: 9 },
+                        boxWidth: 12
                     }
                 }
             },
@@ -1626,7 +1630,7 @@
                                 // Re-initialize container if placeholder state was shown
                                 const canvasTest = document.getElementById('attackChart');
                                 if (!canvasTest) {
-                                    attackCtx.parentElement.innerHTML = '<canvas id="attackChart" height="200"></canvas>';
+                                    attackCtx.parentElement.innerHTML = '<div style="position:relative;height:220px;width:100%;"><canvas id="attackChart"></canvas></div>';
                                     initAttackChart();
                                 } else if (!attackChart) {
                                     initAttackChart();

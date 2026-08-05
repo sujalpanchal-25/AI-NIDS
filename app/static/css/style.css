@@ -560,6 +560,7 @@ a:hover {
     display: flex;
     gap: 1rem;
     align-items: center;
+    flex-shrink: 0;
 }
 
 /* ===== Stats Cards ===== */
@@ -1582,6 +1583,8 @@ a:hover {
     gap: 0.5rem;
     transition: all 0.3s ease;
     box-shadow: 0 4px 15px rgba(13, 110, 253, 0.3);
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .btn-export:hover,
@@ -1610,6 +1613,8 @@ a:hover {
     transition: all 0.3s ease;
     box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
     text-decoration: none;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .btn-pdf-report:hover {
@@ -3248,5 +3253,273 @@ a:hover {
 .topbar-search {
     position: relative;
 }
+
+/* ===== Comprehensive Multi-Theme System ===== */
+
+/* --- Light Theme Styles --- */
+/* --- Light Theme (White Theme) Overrides --- */
+[data-theme="light"] {
+    --bg-dark: #f8fafc;
+    --bg-card: #ffffff;
+    --bg-hover: #f1f5f9;
+    --border-color: rgba(0, 0, 0, 0.12);
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+}
+
+/* Base Body and Text */
+[data-theme="light"] body {
+    background-color: #f8fafc !important;
+    color: #0f172a !important;
+}
+
+/* Page Headers & Text Typography */
+[data-theme="light"] .page-title,
+[data-theme="light"] h1, 
+[data-theme="light"] h2, 
+[data-theme="light"] h3, 
+[data-theme="light"] h4, 
+[data-theme="light"] h5, 
+[data-theme="light"] h6 {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .page-subtitle,
+[data-theme="light"] p,
+[data-theme="light"] small,
+[data-theme="light"] label,
+[data-theme="light"] .setting-desc,
+[data-theme="light"] .info-label,
+[data-theme="light"] .setting-label {
+    color: #475569 !important;
+}
+
+/* Sidebar & Topbar */
+[data-theme="light"] .sidebar {
+    background-color: #ffffff !important;
+    border-right-color: #e2e8f0 !important;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .top-navbar {
+    background-color: #ffffff !important;
+    border-bottom-color: #e2e8f0 !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .logo span {
+    color: #0f172a !important;
+}
+
+/* Glass Card & Cards & Settings Panel */
+[data-theme="light"] .glass-card,
+[data-theme="light"] .cyber-card,
+[data-theme="light"] .cyber-panel,
+[data-theme="light"] .stat-card,
+[data-theme="light"] .chart-card,
+[data-theme="light"] .profile-card,
+[data-theme="light"] .setting-card,
+[data-theme="light"] .card,
+[data-theme="light"] .settings-panel,
+[data-theme="light"] .modal-content,
+[data-theme="light"] .dropdown-menu {
+    background: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    color: #0f172a !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Settings Left Navigation Tabs */
+[data-theme="light"] .settings-nav .nav-link {
+    color: #475569 !important;
+    background-color: transparent !important;
+}
+
+[data-theme="light"] .settings-nav .nav-link:hover {
+    color: #2563eb !important;
+    background-color: #f1f5f9 !important;
+}
+
+[data-theme="light"] .settings-nav .nav-link.active {
+    color: #ffffff !important;
+    background: linear-gradient(135deg, #2563eb, #7c3aed) !important;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
+}
+
+[data-theme="light"] .settings-panel .card-header {
+    border-bottom-color: #e2e8f0 !important;
+    background-color: #f8fafc !important;
+}
+
+[data-theme="light"] .system-info {
+    border-top-color: #e2e8f0 !important;
+    background-color: #f8fafc !important;
+}
+
+/* Dashboard Cyber Stat Cards & Numbers */
+[data-theme="light"] .stat-card.cyber-card {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] .cyber-number {
+    background: linear-gradient(135deg, #0f172a 0%, #475569 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+}
+
+[data-theme="light"] .stat-card p,
+[data-theme="light"] .stat-content p {
+    color: #64748b !important;
+}
+
+/* Inputs, Selects & Form Controls */
+[data-theme="light"] .form-control,
+[data-theme="light"] .form-select,
+[data-theme="light"] .cyber-select {
+    background-color: #f8fafc !important;
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+}
+
+[data-theme="light"] .form-control:focus,
+[data-theme="light"] .form-select:focus,
+[data-theme="light"] .cyber-select:focus {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border-color: #2563eb !important;
+    box-shadow: 0 0 0 0.25rem rgba(37, 99, 235, 0.15) !important;
+}
+
+[data-theme="light"] .form-control::placeholder {
+    color: #94a3b8 !important;
+}
+
+/* Sidebar Nav Links */
+[data-theme="light"] .nav-link {
+    color: #475569 !important;
+}
+
+[data-theme="light"] .nav-link:hover,
+[data-theme="light"] .nav-link.active {
+    color: #2563eb !important;
+    background-color: #eff6ff !important;
+}
+
+/* Tables */
+[data-theme="light"] .table {
+    color: #0f172a !important;
+}
+
+[data-theme="light"] .table th {
+    background-color: #f1f5f9 !important;
+    color: #334155 !important;
+    border-color: #cbd5e1 !important;
+}
+
+[data-theme="light"] .table td {
+    color: #0f172a !important;
+    border-color: #e2e8f0 !important;
+}
+
+/* Dropdowns & Notifications */
+[data-theme="light"] .dropdown-menu,
+[data-theme="light"] .notification-dropdown {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    color: #0f172a !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1) !important;
+}
+
+[data-theme="light"] .dropdown-item {
+    color: #334155 !important;
+}
+
+[data-theme="light"] .dropdown-item:hover {
+    background-color: #f1f5f9 !important;
+    color: #2563eb !important;
+}
+
+/* Theme Option Badges in Settings */
+[data-theme="light"] .theme-option {
+    background-color: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+    color: #334155 !important;
+}
+
+[data-theme="light"] .theme-option.active {
+    border-color: #2563eb !important;
+    background-color: #dbeafe !important;
+    color: #1d4ed8 !important;
+}
+
+/* --- Cyber Theme Styles --- */
+[data-theme="cyber"] {
+    --bg-dark: #030712;
+    --bg-card: #0b1329;
+    --bg-hover: #111e38;
+    --border-color: rgba(0, 242, 254, 0.25);
+    --text-primary: #e0f2fe;
+    --text-secondary: #7dd3fc;
+    --text-muted: #38bdf8;
+    --primary: #00f2fe;
+    --primary-hover: #38bdf8;
+}
+
+[data-theme="cyber"] body {
+    background-color: #030712 !important;
+    color: #e0f2fe !important;
+}
+
+[data-theme="cyber"] .sidebar,
+[data-theme="cyber"] .top-navbar {
+    background-color: #080f21 !important;
+    border-color: rgba(0, 242, 254, 0.3) !important;
+}
+
+[data-theme="cyber"] .cyber-card,
+[data-theme="cyber"] .chart-card,
+[data-theme="cyber"] .stat-card,
+[data-theme="cyber"] .profile-card,
+[data-theme="cyber"] .setting-card,
+[data-theme="cyber"] .card,
+[data-theme="cyber"] .modal-content,
+[data-theme="cyber"] .dropdown-menu {
+    background-color: #0b1329 !important;
+    border-color: rgba(0, 242, 254, 0.3) !important;
+    box-shadow: 0 0 15px rgba(0, 242, 254, 0.12) !important;
+    color: #e0f2fe !important;
+}
+
+[data-theme="cyber"] .logo span,
+[data-theme="cyber"] .page-title {
+    color: #00f2fe !important;
+    text-shadow: 0 0 10px rgba(0, 242, 254, 0.5) !important;
+}
+
+[data-theme="cyber"] .nav-link {
+    color: #7dd3fc !important;
+}
+
+[data-theme="cyber"] .nav-link:hover,
+[data-theme="cyber"] .nav-link.active {
+    color: #00f2fe !important;
+    background: rgba(0, 242, 254, 0.15) !important;
+    border-left: 3px solid #00f2fe !important;
+    box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.2) !important;
+}
+
+[data-theme="cyber"] .theme-option.active {
+    border-color: #00f2fe !important;
+    background-color: rgba(0, 242, 254, 0.15) !important;
+    color: #00f2fe !important;
+    box-shadow: 0 0 10px rgba(0, 242, 254, 0.3) !important;
+}
+
 
 

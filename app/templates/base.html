@@ -1,6 +1,13 @@
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
 <head>
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('app-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            document.documentElement.setAttribute('data-bs-theme', savedTheme === 'light' ? 'light' : 'dark');
+        })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}AI-NIDS{% endblock %} | AI Network Intrusion Detection</title>
@@ -101,12 +108,6 @@
                     <span>AI Defense</span>
                 </a>
             </li>
-            <li class="nav-item">
-                <a href="{{ url_for('dashboard.showcase') }}" class="nav-link {% if request.endpoint == 'dashboard.showcase' %}active{% endif %}">
-                    <i class="bi bi-stars"></i>
-                    <span>Showcase</span>
-                </a>
-            </li>
             
             {% if current_user.role == 'admin' %}
             <li class="nav-section">Administration</li>
@@ -156,6 +157,18 @@
             </div>
             
             <div class="navbar-actions">
+                <!-- Theme Switcher Dropdown -->
+                <div class="dropdown me-1">
+                    <button class="btn btn-link dropdown-toggle" data-bs-toggle="dropdown" id="theme-dropdown-btn" title="Switch Theme" style="color: var(--text-primary);">
+                        <i class="bi bi-moon-stars-fill" id="theme-toggle-icon"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow">
+                        <li><button class="dropdown-item theme-switch-btn" data-theme="dark" type="button"><i class="bi bi-moon-stars-fill me-2 text-primary"></i>Dark Theme</button></li>
+                        <li><button class="dropdown-item theme-switch-btn" data-theme="light" type="button"><i class="bi bi-sun-fill me-2 text-warning"></i>Light Theme</button></li>
+                        <li><button class="dropdown-item theme-switch-btn" data-theme="cyber" type="button"><i class="bi bi-grid-fill me-2 text-info"></i>Cyber Theme</button></li>
+                    </ul>
+                </div>
+
                 <button class="btn btn-link position-relative" id="notifications-btn">
                     <i class="bi bi-bell"></i>
                     <span class="notification-badge"></span>
@@ -487,6 +500,52 @@
         window.addEventListener('appinstalled', () => {
             console.log('✅ AI-NIDS installed as PWA');
             deferredPrompt = null;
+        });
+
+        // Theme Controller System
+        window.setAppTheme = function(theme) {
+            if (!['dark', 'light', 'cyber'].includes(theme)) theme = 'dark';
+            localStorage.setItem('app-theme', theme);
+            document.documentElement.setAttribute('data-theme', theme);
+            document.documentElement.setAttribute('data-bs-theme', theme === 'light' ? 'light' : 'dark');
+
+            const icon = document.getElementById('theme-toggle-icon');
+            if (icon) {
+                if (theme === 'light') icon.className = 'bi bi-sun-fill text-warning';
+                else if (theme === 'cyber') icon.className = 'bi bi-grid-fill text-info';
+                else icon.className = 'bi bi-moon-stars-fill text-primary';
+            }
+
+            document.querySelectorAll('.theme-option').forEach(opt => {
+                if (opt.getAttribute('data-theme') === theme) {
+                    opt.classList.add('active');
+                } else {
+                    opt.classList.remove('active');
+                }
+            });
+
+            document.querySelectorAll('.theme-switch-btn').forEach(btn => {
+                if (btn.getAttribute('data-theme') === theme) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedTheme = localStorage.getItem('app-theme') || 'dark';
+            window.setAppTheme(savedTheme);
+
+            document.addEventListener('click', function(e) {
+                const target = e.target.closest('.theme-switch-btn, .theme-option');
+                if (target) {
+                    const theme = target.getAttribute('data-theme');
+                    if (theme) {
+                        window.setAppTheme(theme);
+                    }
+                }
+            });
         });
     </script>
     

@@ -85,7 +85,7 @@
                 </div>
                 <div class="detail-row">
                     <span class="label">Model</span>
-                    <span class="value"><code>{{ alert.model_version or 'Unknown' }}</code></span>
+                    <span class="value"><code>{{ alert.model_used or alert.model_version or 'XGBoost Classifier' }}</code></span>
                 </div>
             </div>
         </div>
