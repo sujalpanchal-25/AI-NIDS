@@ -120,12 +120,15 @@
                             {% if user.id != current_user.id %}
                             <form action="{{ url_for('auth.toggle_user_active', user_id=user.id) }}" method="POST" class="d-inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn btn-sm btn-{{ 'warning' if user.is_active else 'success' }}">
+                                <button type="submit" class="btn btn-sm btn-{{ 'warning' if user.is_active else 'success' }}" title="{{ 'Deactivate' if user.is_active else 'Activate' }}">
                                     <i class="bi bi-{{ 'pause' if user.is_active else 'play' }}"></i>
                                 </button>
                             </form>
-                            <button class="btn btn-sm btn-info" onclick="showRoleModal({{ user.id }}, '{{ user.role }}')">
+                            <button class="btn btn-sm btn-info" onclick="showRoleModal({{ user.id }}, '{{ user.role }}')" title="Change Role">
                                 <i class="bi bi-person-gear"></i>
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="showDeleteModal({{ user.id }}, '{{ user.username }}')" title="Delete User">
+                                <i class="bi bi-trash"></i>
                             </button>
                             {% endif %}
                             <button class="btn btn-sm btn-secondary">
@@ -210,6 +213,28 @@
     </div>
 </div>
 
+<!-- Delete User Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Delete User</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="deleteForm" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+                    <p class="mb-0">Are you sure you want to delete user <strong id="deleteUsername"></strong>?</p>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <style>
 .avatar-circle {
     width: 40px;
@@ -278,6 +303,13 @@ function showRoleModal(userId, currentRole) {
     const modal = new bootstrap.Modal(document.getElementById('roleModal'));
     document.getElementById('roleForm').action = `/auth/users/${userId}/change-role`;
     document.getElementById('roleSelect').value = currentRole;
+    modal.show();
+}
+
+function showDeleteModal(userId, username) {
+    const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    document.getElementById('deleteForm').action = `/auth/users/${userId}/delete`;
+    document.getElementById('deleteUsername').textContent = username;
     modal.show();
 }
 

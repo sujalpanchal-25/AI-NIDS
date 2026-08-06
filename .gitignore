@@ -113,6 +113,10 @@ models/*.h5
 # Data files
 data/raw/*
 data/processed/*
+data/NIDS_Dataset/
+data/datasets/*.csv
+!data/datasets/sample_traffic.csv
+*.csv
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 

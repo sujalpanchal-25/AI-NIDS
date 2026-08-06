@@ -1347,11 +1347,56 @@ document.getElementById('riskRange')?.addEventListener('input', function() {
     document.getElementById('riskValue').textContent = this.value;
 });
 
-// Theme selection
+// Load General Settings on Page Load
+function loadGeneralSettings() {
+    const saved = localStorage.getItem('ainids_general_settings');
+    const savedTheme = localStorage.getItem('app-theme') || localStorage.getItem('ainids_theme') || 'dark';
+
+    // Apply active theme UI
+    document.querySelectorAll('.theme-option').forEach(opt => {
+        if (opt.dataset.theme === savedTheme) {
+            opt.classList.add('active');
+        } else {
+            opt.classList.remove('active');
+        }
+    });
+
+    if (saved) {
+        try {
+            const settings = JSON.parse(saved);
+            if (settings.systemName && document.getElementById('systemName')) {
+                document.getElementById('systemName').value = settings.systemName;
+            }
+            if (settings.orgName && document.getElementById('orgName')) {
+                document.getElementById('orgName').value = settings.orgName;
+            }
+            if (settings.timezone && document.getElementById('timezone')) {
+                document.getElementById('timezone').value = settings.timezone;
+            }
+            if (settings.dateFormat && document.getElementById('dateFormat')) {
+                document.getElementById('dateFormat').value = settings.dateFormat;
+            }
+            if (settings.refreshRate && document.getElementById('refreshRate')) {
+                document.getElementById('refreshRate').value = settings.refreshRate;
+            }
+        } catch (e) {
+            console.error("Error loading general settings:", e);
+        }
+    }
+}
+document.addEventListener('DOMContentLoaded', loadGeneralSettings);
+
+// Theme selection & immediate live switching
 document.querySelectorAll('.theme-option').forEach(opt => {
     opt.addEventListener('click', function() {
         document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('active'));
         this.classList.add('active');
+        
+        const theme = this.dataset.theme;
+        localStorage.setItem('app-theme', theme);
+        localStorage.setItem('ainids_theme', theme);
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.setAttribute('data-bs-theme', theme === 'light' ? 'light' : 'dark');
     });
 });
 
@@ -1371,25 +1416,52 @@ document.querySelectorAll('.category-chip input').forEach(input => {
     });
 });
 
-// Save settings
+// Save all settings persistently
 function saveAllSettings() {
     const btn = event.target;
     const originalText = btn.innerHTML;
     btn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Saving...';
     btn.disabled = true;
     
+    // Collect General Settings
+    const activeThemeOpt = document.querySelector('.theme-option.active');
+    const selectedTheme = activeThemeOpt ? activeThemeOpt.dataset.theme : 'dark';
+
+    const generalSettings = {
+        systemName: document.getElementById('systemName')?.value || 'AI-NIDS Production',
+        orgName: document.getElementById('orgName')?.value || 'Security Operations Center',
+        timezone: document.getElementById('timezone')?.value || 'Asia/Kolkata',
+        dateFormat: document.getElementById('dateFormat')?.value || 'DD/MM/YYYY',
+        refreshRate: document.getElementById('refreshRate')?.value || '30',
+        theme: selectedTheme
+    };
+
+    // Save to localStorage
+    localStorage.setItem('ainids_general_settings', JSON.stringify(generalSettings));
+    localStorage.setItem('app-theme', selectedTheme);
+    localStorage.setItem('ainids_theme', selectedTheme);
+
+    // Apply Theme
+    document.documentElement.setAttribute('data-theme', selectedTheme);
+    document.documentElement.setAttribute('data-bs-theme', selectedTheme === 'light' ? 'light' : 'dark');
+
     setTimeout(() => {
         btn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Saved!';
         setTimeout(() => {
             btn.innerHTML = originalText;
             btn.disabled = false;
-        }, 2000);
-    }, 1000);
+        }, 1500);
+    }, 500);
 }
 
-// Reset settings
+// Reset settings to factory defaults
 function resetSettings() {
-    if (confirm('Are you sure you want to reset all settings to defaults?')) {
+    if (confirm('Are you sure you want to reset all General Settings to defaults?')) {
+        localStorage.removeItem('ainids_general_settings');
+        localStorage.removeItem('app-theme');
+        localStorage.removeItem('ainids_theme');
+        document.documentElement.setAttribute('data-theme', 'dark');
+        document.documentElement.setAttribute('data-bs-theme', 'dark');
         location.reload();
     }
 }

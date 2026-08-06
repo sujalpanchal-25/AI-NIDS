@@ -239,7 +239,9 @@
                 </h3>
             </div>
             <div class="card-body">
-                <canvas id="severityChart" height="200"></canvas>
+                <div style="position:relative; height:220px; width:100%;">
+                    <canvas id="severityChart"></canvas>
+                </div>
             </div>
         </div>
 
@@ -1566,11 +1568,13 @@
             datasets: [{
                 data: severityData.values || [0, 0, 0, 0, 0],
                 backgroundColor: ['#ff4757', '#ff9f43', '#ffc107', '#00d26a', '#00f2fe'],
-                borderRadius: 4
+                borderRadius: 4,
+                maxBarThickness: 35
             }]
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
                 x: {

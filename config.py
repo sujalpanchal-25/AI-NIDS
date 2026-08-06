@@ -29,9 +29,11 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = False
     
-    # Session
-    PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
-    SESSION_TYPE = 'filesystem'
+    # Session & Remember Me Cookie Configuration
+    PERMANENT_SESSION_LIFETIME = timedelta(days=2)
+    REMEMBER_COOKIE_DURATION = timedelta(days=2)
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_REFRESH_EACH_REQUEST = True
     
     # Security
     WTF_CSRF_ENABLED = True

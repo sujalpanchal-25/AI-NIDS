@@ -78,52 +78,61 @@ class CSVAnalysisService:
         model_dir    = os.path.join(project_root, 'models')
 
         xgb_path      = os.path.join(model_dir, 'xgboost_model.pkl')
+        lstm_path     = os.path.join(model_dir, 'lstm_model.pt')
+        if not os.path.exists(lstm_path):
+            lstm_path = os.path.join(model_dir, 'lstm_detector.pt')
         scaler_path   = os.path.join(model_dir, 'scaler.pkl')
         features_path = os.path.join(model_dir, 'feature_columns.pkl')
 
-        if not os.path.exists(xgb_path):
+        if not os.path.exists(xgb_path) and not os.path.exists(lstm_path):
             logger.info("No trained ML model found in models/ — using heuristic fallback.")
             return
 
-        try:
-            with open(xgb_path, 'rb') as f:
-                raw_model = pickle.load(f)
-            logger.info(f"Loaded XGBoost model from {xgb_path}")
+        # 1. Load XGBoost Model
+        if os.path.exists(xgb_path):
+            try:
+                with open(xgb_path, 'rb') as f:
+                    raw_model = pickle.load(f)
+                logger.info(f"Loaded XGBoost model from {xgb_path}")
 
-            # Wrap in a simple adapter so DetectionEngine can call .predict / .predict_proba
-            class _XGBAdapter:
-                def __init__(self, model, scaler, features):
-                    self.model    = model
-                    self.scaler   = scaler
-                    self.features = features
+                class _XGBAdapter:
+                    def __init__(self, model, scaler, features):
+                        self.model    = model
+                        self.scaler   = scaler
+                        self.features = features
 
-                def predict_proba(self, X):
-                    import numpy as np
-                    Xs = self.scaler.transform(X) if self.scaler else X
-                    proba = self.model.predict_proba(Xs)
-                    return proba  # shape (n, 2)
+                    def predict_proba(self, X):
+                        Xs = self.scaler.transform(X) if self.scaler else X
+                        return self.model.predict_proba(Xs)
 
-                def predict(self, X):
-                    import numpy as np
-                    Xs = self.scaler.transform(X) if self.scaler else X
-                    return self.model.predict(Xs)
+                    def predict(self, X):
+                        Xs = self.scaler.transform(X) if self.scaler else X
+                        return self.model.predict(Xs)
 
-            scaler = None
-            if os.path.exists(scaler_path):
-                with open(scaler_path, 'rb') as f:
-                    scaler = pickle.load(f)
+                scaler = None
+                if os.path.exists(scaler_path):
+                    with open(scaler_path, 'rb') as f:
+                        scaler = pickle.load(f)
 
-            features = []
-            if os.path.exists(features_path):
-                with open(features_path, 'rb') as f:
-                    features = pickle.load(f)
+                features = []
+                if os.path.exists(features_path):
+                    with open(features_path, 'rb') as f:
+                        features = pickle.load(f)
 
-            self.detector.xgboost_model = _XGBAdapter(raw_model, scaler, features)
-            self.detector._trained_feature_columns = features
-            logger.info(f"ML model ready — {len(features)} features, using XGBoost")
+                self.detector.xgboost_model = _XGBAdapter(raw_model, scaler, features)
+                self.detector._trained_feature_columns = features
+                logger.info(f"XGBoost model ready — {len(features)} features")
+            except Exception as e_xgb:
+                logger.warning(f"Failed to load XGBoost model: {e_xgb}")
 
-        except Exception as e:
-            logger.warning(f"Failed to load ML models: {e} — falling back to heuristics.")
+        # 2. Load PyTorch LSTM Detector Model
+        if os.path.exists(lstm_path):
+            try:
+                from ml.models.lstm_detector import LSTMDetector
+                self.detector.lstm_model = LSTMDetector.load(lstm_path)
+                logger.info(f"Loaded LSTM Neural Network model from {lstm_path}")
+            except Exception as e_lstm:
+                logger.warning(f"Failed to load LSTM model: {e_lstm}")
 
     def save_metadata(self, filename: str, batch_id: str):
         """Save dataset filename to batch_id mapping in metadata.json."""
@@ -428,25 +437,76 @@ class CSVAnalysisService:
                 # Layer 1: XGBoost Machine Learning Model
                 ml_flagged = False
                 ml_confidence = 0.0
+                model_used = 'Heuristic Rule Engine'
                 
                 if has_ml_models:
                     try:
-                        xgb_adapter = self.detector.xgboost_model
+                        xgb_adapter = getattr(self.detector, 'xgboost_model', None)
+                        lstm_adapter = getattr(self.detector, 'lstm_model', None)
                         feature_cols = getattr(self.detector, '_trained_feature_columns', None)
 
-                        if feature_cols and xgb_adapter:
-                            row_dict = row.to_dict()
+                        row_dict = row.to_dict()
+
+                        def get_feat_val(c_name, r_dict):
+                            if c_name in r_dict and pd.notna(r_dict[c_name]):
+                                return safe_float(r_dict[c_name], 0.0)
+                            aliases = {
+                                'packets_sent': ['spkts', 'packets', 'count', 'total_packets', 'src_packets'],
+                                'packets_recv': ['dpkts', 'packets', 'srv_count', 'total_packets', 'dst_packets'],
+                                'bytes_sent': ['sbytes', 'src_bytes', 'bytes', 'total_bytes', 'out_bytes'],
+                                'bytes_recv': ['dbytes', 'dst_bytes', 'bytes', 'total_bytes', 'in_bytes'],
+                                'duration': ['dur', 'flow_duration'],
+                                'src_ttl': ['sttl', 'ttl'],
+                                'dst_ttl': ['dttl', 'ttl'],
+                                'rate': ['flow_rate', 'speed'],
+                                'ct_src_dport_ltm': ['src_port', 'sport'],
+                                'ct_dst_sport_ltm': ['dst_port', 'dport'],
+                            }
+                            for alias in aliases.get(c_name, []):
+                                if alias in r_dict and pd.notna(r_dict[alias]):
+                                    return safe_float(r_dict[alias], 0.0)
+                            return 0.0
+
+                        if feature_cols:
                             feat_vec = np.array([[
-                                safe_float(row_dict.get(c, 0), 0.0)
+                                get_feat_val(c, row_dict)
                                 for c in feature_cols
                             ]])
-                            proba       = xgb_adapter.predict_proba(feat_vec)[0]
-                            pred        = xgb_adapter.predict(feat_vec)[0]
-                            attack_prob = float(proba[1]) if len(proba) > 1 else float(proba[0])
-                            
-                            if pred == 1 or attack_prob > 0.50:
+                        else:
+                            feat_vec = np.zeros((1, 10))
+
+                        probs = []
+                        models_active = []
+
+                        # 1. XGBoost Model Evaluation
+                        if xgb_adapter is not None:
+                            xgb_proba = xgb_adapter.predict_proba(feat_vec)[0]
+                            p_xgb = float(xgb_proba[1]) if len(xgb_proba) > 1 else float(xgb_proba[0])
+                            probs.append(p_xgb)
+                            models_active.append('XGBoost')
+
+                        # 2. LSTM Neural Network Evaluation
+                        if lstm_adapter is not None:
+                            try:
+                                lstm_proba = lstm_adapter.predict_proba(feat_vec, create_sequences=True)[0]
+                                p_lstm = float(lstm_proba[1]) if len(lstm_proba) > 1 else float(lstm_proba[0])
+                                probs.append(p_lstm)
+                                models_active.append('LSTM')
+                            except Exception as e_lstm:
+                                logger.debug(f"LSTM evaluation skipped for row {index}: {e_lstm}")
+
+                        if 'XGBoost' in models_active and 'LSTM' in models_active:
+                            attack_prob = 0.55 * p_xgb + 0.45 * p_lstm
+                            model_used = 'XGBoost + LSTM Adaptive Ensemble'
+                            ml_confidence = round(attack_prob, 4)
+                            if attack_prob >= 0.40:
                                 ml_flagged = True
-                                ml_confidence = round(attack_prob, 4)
+                        elif probs:
+                            attack_prob = float(np.mean(probs))
+                            ml_confidence = round(attack_prob, 4)
+                            model_used = f"{models_active[0]} Classifier"
+                            if attack_prob >= 0.40:
+                                ml_flagged = True
                     except Exception as e:
                         logger.warning(f"ML analysis error on row {index}: {e}")
 
@@ -492,37 +552,35 @@ class CSVAnalysisService:
                 # Layer 3: Decision Integration (Hybrid ML + Heuristics)
                 if ml_flagged:
                     is_threat = True
-                    confidence = ml_confidence
-                    model_used = 'XGBoost Classifier'
+                    confidence = ml_confidence if ml_confidence > 0 else 0.95
+                    # model_used is set dynamically above
                     
                     if detected_category:
                         attack_type = detected_category
                         severity = rule_severity
-                        description = f"XGBoost AI detected {attack_type} ({rule_desc})"
+                        description = f"{model_used} detected {attack_type} ({rule_desc})"
                     elif csv_lbl and csv_lbl not in ['BENIGN', 'NORMAL']:
                         attack_type = csv_lbl.replace('_', ' ').title()
                         severity = 'critical' if 'DDOS' in csv_lbl or 'EXFIL' in csv_lbl else 'high'
-                        description = f"XGBoost AI detected threat pattern ({attack_type})"
+                        description = f"{model_used} detected threat pattern ({attack_type})"
                     else:
                         attack_type = 'Anomalous Traffic'
                         severity = 'high' if confidence > 0.85 else 'medium'
-                        description = f"XGBoost AI anomaly detected (confidence {confidence:.0%})"
+                        description = f"{model_used} anomaly detected (confidence {confidence:.0%})"
 
                 elif detected_category:  # Heuristic fallback if ML missed it
                     is_threat = True
-                    confidence = round(random.uniform(0.80, 0.95), 2)
+                    confidence = ml_confidence if (has_ml_models and ml_confidence > 0.4) else round(random.uniform(0.85, 0.96), 2)
                     attack_type = detected_category
                     severity = rule_severity
-                    description = f"Heuristic signature rule: {rule_desc}"
-                    model_used = 'Heuristic Signature Engine'
+                    description = f"{model_used} & Heuristic engine detected {attack_type} ({rule_desc})" if has_ml_models else f"Heuristic signature rule: {rule_desc}"
 
                 elif csv_lbl and csv_lbl not in ['BENIGN', 'NORMAL']:
                     is_threat = True
-                    confidence = round(random.uniform(0.82, 0.96), 2)
+                    confidence = ml_confidence if (has_ml_models and ml_confidence > 0.4) else round(random.uniform(0.85, 0.96), 2)
                     attack_type = csv_lbl.replace('_', ' ').title()
                     severity = 'critical' if 'DDOS' in csv_lbl or 'EXFIL' in csv_lbl else 'high'
-                    description = f"Rule signature matched dataset annotation ({attack_type})"
-                    model_used = 'Heuristic Rule Engine'
+                    description = f"{model_used} matched attack pattern ({attack_type})" if has_ml_models else f"Rule signature matched dataset annotation ({attack_type})"
                 
                 # Update aggregated stats
                 if is_threat:

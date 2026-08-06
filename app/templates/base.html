@@ -102,12 +102,6 @@
                     <span>Reports</span>
                 </a>
             </li>
-            <li class="nav-item">
-                <a href="{{ url_for('ai_models.ai_models_page') }}" class="nav-link {% if request.endpoint == 'ai_models.ai_models_page' %}active{% endif %}">
-                    <i class="bi bi-robot"></i>
-                    <span>AI Defense</span>
-                </a>
-            </li>
             
             {% if current_user.role == 'admin' %}
             <li class="nav-section">Administration</li>

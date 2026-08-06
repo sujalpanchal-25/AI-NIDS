@@ -32,17 +32,27 @@ def login():
     form = LoginForm()
     
     if form.validate_on_submit():
-        user = User.query.filter_by(username=form.username.data).first()
+        username_clean = form.username.data.strip()
+        user = User.query.filter_by(username=username_clean).first()
         
         if user is None or not user.check_password(form.password.data):
-            flash('Invalid username or password', 'danger')
+            flash('Invalid username or password.', 'danger')
             return redirect(url_for('auth.login'))
         
         if not user.is_active:
-            flash('Your account has been deactivated', 'warning')
+            flash('Your account has been deactivated. Please contact an administrator.', 'warning')
             return redirect(url_for('auth.login'))
         
-        login_user(user, remember=form.remember_me.data)
+        from flask import session
+        from datetime import timedelta
+        
+        remember_flag = bool(form.remember_me.data)
+        session.permanent = remember_flag
+        login_user(
+            user, 
+            remember=remember_flag, 
+            duration=timedelta(days=1) if remember_flag else None
+        )
         user.last_login = db.func.now()
         db.session.commit()
         
@@ -69,7 +79,7 @@ def logout():
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
-    """User registration (admin only in production)."""
+    """User registration."""
     if current_user.is_authenticated:
         return redirect(url_for('dashboard.dashboard'))
     
@@ -77,8 +87,8 @@ def register():
     
     if form.validate_on_submit():
         user = User(
-            username=form.username.data,
-            email=form.email.data,
+            username=form.username.data.strip(),
+            email=form.email.data.strip().lower(),
             role='analyst'  # Default role
         )
         user.set_password(form.password.data)
@@ -86,8 +96,12 @@ def register():
         db.session.add(user)
         db.session.commit()
         
-        flash('Registration successful! Please log in.', 'success')
-        return redirect(url_for('auth.login'))
+        login_user(user)
+        user.last_login = db.func.now()
+        db.session.commit()
+        
+        flash(f'Registration successful! Welcome, {user.username}!', 'success')
+        return redirect(url_for('dashboard.dashboard'))
     
     return render_template('register.html', form=form)
 
@@ -224,6 +238,32 @@ def change_user_role(user_id):
     
     flash(f'User {user.username} role changed to {new_role}.', 'success')
     return redirect(url_for('auth.user_list'))
+
+
+@auth_bp.route('/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+def delete_user(user_id):
+    """Delete user account (admin only)."""
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('dashboard.dashboard'))
+    
+    user = User.query.get_or_404(user_id)
+    
+    if user.id == current_user.id:
+        flash('You cannot delete your own account.', 'warning')
+        return redirect(url_for('auth.user_list'))
+    
+    # Delete associated API keys first
+    APIKey.query.filter_by(user_id=user.id).delete()
+    
+    username = user.username
+    db.session.delete(user)
+    db.session.commit()
+    
+    flash(f'User {username} has been deleted successfully.', 'success')
+    return redirect(url_for('auth.user_list'))
+
 
 
 @auth_bp.route('/export-my-data')
