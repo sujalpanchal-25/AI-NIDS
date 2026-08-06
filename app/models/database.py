@@ -132,6 +132,14 @@ class Alert(db.Model):
             except:
                 data['explanation'] = None
         
+        if self.raw_data:
+            try:
+                raw_json = json.loads(self.raw_data)
+                if isinstance(raw_json, dict) and 'individual_predictions' in raw_json:
+                    data['individual_predictions'] = raw_json['individual_predictions']
+            except:
+                pass
+
         return data
     
     @property
@@ -208,7 +216,7 @@ class NetworkFlow(db.Model):
     
     def to_dict(self):
         """Convert to dictionary."""
-        return {
+        data = {
             'id': self.id,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,
             'source_ip': self.source_ip,
@@ -222,8 +230,17 @@ class NetworkFlow(db.Model):
             'packets_recv': self.packets_recv,
             'label': self.label,
             'predicted_label': self.predicted_label,
+            'is_anomaly': self.is_anomaly,
             'batch_id': self.batch_id
         }
+        if self.raw_data:
+            try:
+                raw_json = json.loads(self.raw_data)
+                if isinstance(raw_json, dict) and 'individual_predictions' in raw_json:
+                    data['individual_predictions'] = raw_json['individual_predictions']
+            except:
+                pass
+        return data
     
     def __repr__(self):
         return f'<NetworkFlow {self.source_ip}:{self.source_port} -> {self.destination_ip}:{self.destination_port}>'

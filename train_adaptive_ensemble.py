@@ -113,7 +113,7 @@ def main():
             threat_level=float(0.9 if is_attack else 0.1)
         )
         
-        # Primary ML model outputs (XGBoost & LSTM lead prediction)
+        # Primary ML model outputs (XGBoost & LSTM lead prediction with rules fallback)
         xgb_prob  = float(np.random.uniform(0.85, 0.99) if is_attack else np.random.uniform(0.01, 0.15))
         lstm_prob = float(np.random.uniform(0.82, 0.98) if is_attack else np.random.uniform(0.01, 0.15))
         rule_prob = float(np.random.uniform(0.50, 0.70) if is_attack else np.random.uniform(0.0, 0.05))
@@ -160,7 +160,7 @@ def main():
     descriptions = {
         'xgboost': 'Primary AI tabular classifier',
         'lstm': 'Secondary AI temporal sequence classifier',
-        'rules': 'Heuristic fallback'
+        'rules': 'Heuristic fallback rule engine'
     }
     
     logger.info("\nDynamic Model Weights Distribution under Attack Context:")

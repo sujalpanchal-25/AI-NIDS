@@ -8,6 +8,7 @@ background threat classification, and DB serialization.
 import os
 import time
 import uuid
+import json
 import random
 import logging
 import threading
@@ -133,6 +134,31 @@ class CSVAnalysisService:
                 logger.info(f"Loaded LSTM Neural Network model from {lstm_path}")
             except Exception as e_lstm:
                 logger.warning(f"Failed to load LSTM model: {e_lstm}")
+
+        # 3. Load Adaptive Ensemble Model (adaptive_ensemble.py)
+        try:
+            from ml.models.adaptive_ensemble import create_adaptive_ensemble
+            adaptive_path = os.path.join(model_dir, 'adaptive_ensemble.pt')
+            if not os.path.exists(adaptive_path):
+                adaptive_path = os.path.join(project_root, 'data', 'saved_models', 'adaptive_ensemble.pt')
+            
+            pretrained_p = adaptive_path if os.path.exists(adaptive_path) else None
+            try:
+                self.detector.adaptive_ensemble = create_adaptive_ensemble(
+                    model_names=['xgboost', 'lstm', 'rules'],
+                    pretrained_path=pretrained_p,
+                    device='cpu'
+                )
+            except Exception:
+                self.detector.adaptive_ensemble = create_adaptive_ensemble(
+                    model_names=['xgboost', 'lstm', 'rules'],
+                    pretrained_path=None,
+                    device='cpu'
+                )
+            logger.info("Adaptive Ensemble (dynamic weight controller with rules fallback) ready")
+        except Exception as e_ens:
+            logger.warning(f"Failed to initialize Adaptive Ensemble: {e_ens}")
+            self.detector.adaptive_ensemble = None
 
     def save_metadata(self, filename: str, batch_id: str):
         """Save dataset filename to batch_id mapping in metadata.json."""
@@ -350,12 +376,18 @@ class CSVAnalysisService:
             # Check if models are loaded
             has_ml_models = (
                 self.detector is not None and (
-                    self.detector.ensemble_model is not None or
                     self.detector.xgboost_model is not None or
-                    self.detector.autoencoder_model is not None or
                     self.detector.lstm_model is not None
                 )
             )
+            
+            xgb_adapter = getattr(self.detector, 'xgboost_model', None) if self.detector else None
+            lstm_adapter = getattr(self.detector, 'lstm_model', None) if self.detector else None
+            adaptive_ensemble = getattr(self.detector, 'adaptive_ensemble', None) if self.detector else None
+            feature_cols = getattr(self.detector, '_trained_feature_columns', None) if self.detector else None
+
+            # Buffer for scaled feature history for LSTM sequence modeling
+            scaled_history = []
             
             # 4. Perform Threat Classification
             flows_to_insert = []
@@ -432,89 +464,12 @@ class CSVAnalysisService:
                 severity = 'info'
                 confidence = 1.0
                 description = 'Normal network traffic'
+                ind_predictions = {}
                 
-                # ── Hybrid Threat Classification Engine ──────────────────
-                # Layer 1: XGBoost Machine Learning Model
-                ml_flagged = False
-                ml_confidence = 0.0
-                model_used = 'Heuristic Rule Engine'
-                
-                if has_ml_models:
-                    try:
-                        xgb_adapter = getattr(self.detector, 'xgboost_model', None)
-                        lstm_adapter = getattr(self.detector, 'lstm_model', None)
-                        feature_cols = getattr(self.detector, '_trained_feature_columns', None)
-
-                        row_dict = row.to_dict()
-
-                        def get_feat_val(c_name, r_dict):
-                            if c_name in r_dict and pd.notna(r_dict[c_name]):
-                                return safe_float(r_dict[c_name], 0.0)
-                            aliases = {
-                                'packets_sent': ['spkts', 'packets', 'count', 'total_packets', 'src_packets'],
-                                'packets_recv': ['dpkts', 'packets', 'srv_count', 'total_packets', 'dst_packets'],
-                                'bytes_sent': ['sbytes', 'src_bytes', 'bytes', 'total_bytes', 'out_bytes'],
-                                'bytes_recv': ['dbytes', 'dst_bytes', 'bytes', 'total_bytes', 'in_bytes'],
-                                'duration': ['dur', 'flow_duration'],
-                                'src_ttl': ['sttl', 'ttl'],
-                                'dst_ttl': ['dttl', 'ttl'],
-                                'rate': ['flow_rate', 'speed'],
-                                'ct_src_dport_ltm': ['src_port', 'sport'],
-                                'ct_dst_sport_ltm': ['dst_port', 'dport'],
-                            }
-                            for alias in aliases.get(c_name, []):
-                                if alias in r_dict and pd.notna(r_dict[alias]):
-                                    return safe_float(r_dict[alias], 0.0)
-                            return 0.0
-
-                        if feature_cols:
-                            feat_vec = np.array([[
-                                get_feat_val(c, row_dict)
-                                for c in feature_cols
-                            ]])
-                        else:
-                            feat_vec = np.zeros((1, 10))
-
-                        probs = []
-                        models_active = []
-
-                        # 1. XGBoost Model Evaluation
-                        if xgb_adapter is not None:
-                            xgb_proba = xgb_adapter.predict_proba(feat_vec)[0]
-                            p_xgb = float(xgb_proba[1]) if len(xgb_proba) > 1 else float(xgb_proba[0])
-                            probs.append(p_xgb)
-                            models_active.append('XGBoost')
-
-                        # 2. LSTM Neural Network Evaluation
-                        if lstm_adapter is not None:
-                            try:
-                                lstm_proba = lstm_adapter.predict_proba(feat_vec, create_sequences=True)[0]
-                                p_lstm = float(lstm_proba[1]) if len(lstm_proba) > 1 else float(lstm_proba[0])
-                                probs.append(p_lstm)
-                                models_active.append('LSTM')
-                            except Exception as e_lstm:
-                                logger.debug(f"LSTM evaluation skipped for row {index}: {e_lstm}")
-
-                        if 'XGBoost' in models_active and 'LSTM' in models_active:
-                            attack_prob = 0.55 * p_xgb + 0.45 * p_lstm
-                            model_used = 'XGBoost + LSTM Adaptive Ensemble'
-                            ml_confidence = round(attack_prob, 4)
-                            if attack_prob >= 0.40:
-                                ml_flagged = True
-                        elif probs:
-                            attack_prob = float(np.mean(probs))
-                            ml_confidence = round(attack_prob, 4)
-                            model_used = f"{models_active[0]} Classifier"
-                            if attack_prob >= 0.40:
-                                ml_flagged = True
-                    except Exception as e:
-                        logger.warning(f"ML analysis error on row {index}: {e}")
-
-                # Layer 2: Heuristic Signature Rules & Attack Categorization
+                # Layer 2: Heuristic Signature Rules & Attack Categorization (Rules Engine)
                 total_packets = packets_sent + packets_recv
                 total_bytes   = bytes_sent + bytes_recv
 
-                # Determine Attack Category based on behavioral features
                 detected_category = None
                 rule_severity = 'high'
                 rule_desc = ''
@@ -544,10 +499,169 @@ class CSVAnalysisService:
                     rule_severity = 'critical'
                     rule_desc = f"High-risk C2/Malware port connection: {dst_port}"
 
-                # CSV Label Fallback
+                # CSV Label Fallback Check
                 csv_lbl = ''
                 if 'label' in col_map and pd.notna(row.get(col_map['label'])):
                     csv_lbl = str(row.get(col_map['label'])).upper().strip()
+
+                p_rule = 0.90 if (detected_category or (csv_lbl and csv_lbl not in ['BENIGN', 'NORMAL'])) else 0.05
+                rule_pred = 1 if p_rule >= 0.50 else 0
+                ind_predictions['rules'] = {
+                    'confidence': round(p_rule, 4),
+                    'prediction': rule_pred
+                }
+
+                # ── Hybrid Threat Classification Engine ──────────────────
+                # Layer 1: XGBoost + LSTM + Rules integrated via adaptive_ensemble.py
+                ml_flagged = False
+                ml_confidence = 0.0
+                model_used = 'Heuristic Rule Engine'
+
+                if has_ml_models:
+                    try:
+                        row_dict = row.to_dict()
+
+                        def get_feat_val(c_name, r_dict):
+                            if c_name in r_dict and pd.notna(r_dict[c_name]):
+                                return safe_float(r_dict[c_name], 0.0)
+                            aliases = {
+                                'packets_sent': ['spkts', 'packets', 'count', 'total_packets', 'src_packets'],
+                                'packets_recv': ['dpkts', 'packets', 'srv_count', 'total_packets', 'dst_packets'],
+                                'bytes_sent': ['sbytes', 'src_bytes', 'bytes', 'total_bytes', 'out_bytes'],
+                                'bytes_recv': ['dbytes', 'dst_bytes', 'bytes', 'total_bytes', 'in_bytes'],
+                                'duration': ['dur', 'flow_duration'],
+                                'src_ttl': ['sttl', 'ttl'],
+                                'dst_ttl': ['dttl', 'ttl'],
+                                'rate': ['flow_rate', 'speed'],
+                                'ct_src_dport_ltm': ['src_port', 'sport'],
+                                'ct_dst_sport_ltm': ['dst_port', 'dport'],
+                            }
+                            for alias in aliases.get(c_name, []):
+                                if alias in r_dict and pd.notna(r_dict[alias]):
+                                    return safe_float(r_dict[alias], 0.0)
+                            return 0.0
+
+                        if feature_cols:
+                            raw_feat_vec = np.array([[
+                                get_feat_val(c, row_dict)
+                                for c in feature_cols
+                            ]], dtype=np.float32)
+                        else:
+                            raw_feat_vec = np.zeros((1, 10), dtype=np.float32)
+
+                        # Existing preprocessing scaler
+                        if xgb_adapter and xgb_adapter.scaler:
+                            scaled_feat_vec = xgb_adapter.scaler.transform(raw_feat_vec)
+                        else:
+                            scaled_feat_vec = raw_feat_vec
+
+                        scaled_history.append(scaled_feat_vec[0])
+
+                        p_xgb = 0.0
+                        xgb_pred = 0
+                        p_lstm = 0.0
+                        lstm_pred = 0
+
+                        # 1. XGBoost Model Evaluation
+                        if xgb_adapter is not None:
+                            try:
+                                if xgb_adapter.scaler:
+                                    xgb_proba = xgb_adapter.model.predict_proba(scaled_feat_vec)[0]
+                                else:
+                                    xgb_proba = xgb_adapter.predict_proba(raw_feat_vec)[0]
+                                p_xgb = float(xgb_proba[1]) if len(xgb_proba) > 1 else float(xgb_proba[0])
+                                xgb_pred = 1 if p_xgb >= 0.50 else 0
+                                ind_predictions['xgboost'] = {
+                                    'confidence': round(p_xgb, 4),
+                                    'prediction': xgb_pred
+                                }
+                            except Exception as e_xgb:
+                                logger.debug(f"XGBoost prediction error on row {index}: {e_xgb}")
+
+                        # 2. LSTM Neural Network Evaluation
+                        if lstm_adapter is not None:
+                            try:
+                                import torch
+                                seq_len = getattr(lstm_adapter, 'sequence_length', 10)
+                                curr_len = len(scaled_history)
+                                if curr_len < seq_len:
+                                    pad_count = seq_len - curr_len
+                                    seq_list = [scaled_history[0]] * pad_count + scaled_history
+                                else:
+                                    seq_list = scaled_history[-seq_len:]
+
+                                seq_arr = np.array([seq_list], dtype=np.float32)
+                                with torch.no_grad():
+                                    tensor_seq = torch.FloatTensor(seq_arr).to(lstm_adapter.device)
+                                    logits, _ = lstm_adapter.model(tensor_seq)
+                                    probs_lstm = torch.softmax(logits, dim=1).cpu().numpy()[0]
+                                    p_lstm = float(probs_lstm[1]) if len(probs_lstm) > 1 else float(probs_lstm[0])
+                                    lstm_pred = 1 if p_lstm >= 0.50 else 0
+                                    ind_predictions['lstm'] = {
+                                        'confidence': round(p_lstm, 4),
+                                        'prediction': lstm_pred
+                                    }
+                            except Exception as e_lstm:
+                                logger.debug(f"LSTM prediction error on row {index}: {e_lstm}")
+
+                        # 3. Adaptive Ensemble Weighting (adaptive_ensemble.py with rules fallback)
+                        if 'xgboost' in ind_predictions and 'lstm' in ind_predictions:
+                            import torch
+                            model_outputs = {
+                                'xgboost': torch.tensor([p_xgb], dtype=torch.float32),
+                                'lstm': torch.tensor([p_lstm], dtype=torch.float32),
+                                'rules': torch.tensor([p_rule], dtype=torch.float32)
+                            }
+                            if adaptive_ensemble is not None:
+                                from ml.models.adaptive_ensemble import ContextFeatures
+                                context = ContextFeatures(
+                                    hour_of_day=flow_time.hour,
+                                    day_of_week=flow_time.weekday(),
+                                    is_weekend=flow_time.weekday() >= 5,
+                                    is_business_hours=9 <= flow_time.hour <= 17 and flow_time.weekday() < 5,
+                                    current_traffic_rate=float(total_rows / max(1.0, duration)),
+                                    threat_level=float(max(p_xgb, p_lstm, p_rule))
+                                )
+                                ens_res = adaptive_ensemble.forward(model_outputs, context=context, return_details=True)
+                                attack_prob = float(ens_res['probabilities'][0].item())
+                                weights = ens_res['weights'][0].detach().cpu().numpy()
+                                w_xgb = float(weights[0])
+                                w_lstm = float(weights[1]) if len(weights) > 1 else 0.0
+                                w_rules = float(weights[2]) if len(weights) > 2 else 0.0
+                                model_used = f"Adaptive Ensemble (XGBoost: {w_xgb:.1%}, LSTM: {w_lstm:.1%}, Rules: {w_rules:.1%})"
+                                ind_predictions['xgboost']['weight'] = round(w_xgb, 4)
+                                ind_predictions['lstm']['weight'] = round(w_lstm, 4)
+                                ind_predictions['rules']['weight'] = round(w_rules, 4)
+                            else:
+                                w_xgb, w_lstm, w_rules = 0.486, 0.392, 0.122
+                                attack_prob = w_xgb * p_xgb + w_lstm * p_lstm + w_rules * p_rule
+                                model_used = "XGBoost + LSTM + Rules Weighted Ensemble"
+                                ind_predictions['xgboost']['weight'] = round(w_xgb, 4)
+                                ind_predictions['lstm']['weight'] = round(w_lstm, 4)
+                                ind_predictions['rules']['weight'] = round(w_rules, 4)
+
+                            ml_confidence = round(attack_prob, 4)
+                            if attack_prob >= 0.40:
+                                ml_flagged = True
+
+                        elif 'xgboost' in ind_predictions:
+                            attack_prob = p_xgb
+                            ind_predictions['xgboost']['weight'] = 1.0
+                            ml_confidence = round(attack_prob, 4)
+                            model_used = "XGBoost Classifier"
+                            if attack_prob >= 0.40:
+                                ml_flagged = True
+
+                        elif 'lstm' in ind_predictions:
+                            attack_prob = p_lstm
+                            ind_predictions['lstm']['weight'] = 1.0
+                            ml_confidence = round(attack_prob, 4)
+                            model_used = "LSTM Classifier"
+                            if attack_prob >= 0.40:
+                                ml_flagged = True
+
+                    except Exception as e:
+                        logger.warning(f"ML analysis error on row {index}: {e}")
 
                 # Layer 3: Decision Integration (Hybrid ML + Heuristics)
                 if ml_flagged:
@@ -591,6 +705,14 @@ class CSVAnalysisService:
                     
                 confidence_sum += confidence
                 
+                # Raw metadata with individual predictions
+                raw_data_dict = {
+                    'index': index,
+                    'final_confidence': confidence,
+                    'individual_predictions': ind_predictions
+                }
+                raw_data_str = json.dumps(raw_data_dict)
+
                 # Build database inserts
                 flow = {
                     'timestamp': flow_time,
@@ -609,7 +731,7 @@ class CSVAnalysisService:
                     'predicted_label': attack_type,
                     'is_anomaly': is_threat,
                     'batch_id': batch_id,
-                    'raw_data': f'{{"index": {index}}}'
+                    'raw_data': raw_data_str
                 }
                 flows_to_insert.append(flow)
                 
@@ -630,7 +752,7 @@ class CSVAnalysisService:
                         'batch_id': batch_id,
                         'acknowledged': False,
                         'resolved': False,
-                        'raw_data': f'{{"index": {index}}}'
+                        'raw_data': raw_data_str
                     }
                     alerts_to_insert.append(alert)
 
