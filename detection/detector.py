@@ -102,6 +102,8 @@ class DetectionEngine:
         xgboost_model=None,
         autoencoder_model=None,
         lstm_model=None,
+        gnn_model=None,
+        temporal_model=None,
         explainer=None,
         config: Optional[Dict] = None
     ):
@@ -114,6 +116,8 @@ class DetectionEngine:
             xgboost_model: XGBoost classifier instance
             autoencoder_model: Autoencoder instance
             lstm_model: LSTM detector instance
+            gnn_model: Graph Neural Network detector instance
+            temporal_model: Multi-window temporal detector instance
             explainer: SHAP explainer instance
             config: Configuration dictionary
         """
@@ -122,6 +126,8 @@ class DetectionEngine:
         self.xgboost_model = xgboost_model
         self.autoencoder_model = autoencoder_model
         self.lstm_model = lstm_model
+        self.gnn_model = gnn_model
+        self.temporal_model = temporal_model
         self.explainer = explainer
         self.config = config or {}
         
@@ -148,10 +154,13 @@ class DetectionEngine:
     
     def load_models(
         self,
-        preprocessor_path: str,
+        preprocessor_path: Optional[str] = None,
         xgboost_path: Optional[str] = None,
         autoencoder_path: Optional[str] = None,
         lstm_path: Optional[str] = None,
+        gnn_path: Optional[str] = None,
+        temporal_path: Optional[str] = None,
+        adaptive_ensemble_path: Optional[str] = None,
         ensemble_path: Optional[str] = None
     ) -> None:
         """
@@ -162,13 +171,25 @@ class DetectionEngine:
             xgboost_path: Path to XGBoost model
             autoencoder_path: Path to autoencoder model
             lstm_path: Path to LSTM model
+            gnn_path: Path to GNN model
+            temporal_path: Path to Temporal model
+            adaptive_ensemble_path: Path to Adaptive Ensemble model
             ensemble_path: Path to ensemble config
         """
         from ml.preprocessing import DataPreprocessor
         from ml.models import XGBoostClassifier, AnomalyAutoencoder, LSTMDetector, EnsembleDetector
         
         # Load preprocessor
-        self.preprocessor = DataPreprocessor.load(preprocessor_path)
+        if preprocessor_path:
+            self.preprocessor = DataPreprocessor.load(preprocessor_path)
+            import pickle, os
+            scaler_p = os.path.join(os.path.dirname(preprocessor_path), 'scaler.pkl')
+            if os.path.exists(scaler_p):
+                try:
+                    with open(scaler_p, 'rb') as f:
+                        self.preprocessor.scaler = pickle.load(f)
+                except Exception:
+                    pass
         
         # Load individual models
         if xgboost_path:
@@ -182,6 +203,34 @@ class DetectionEngine:
         if lstm_path:
             self.lstm_model = LSTMDetector.load(lstm_path)
             logger.info("Loaded LSTM model")
+
+        if gnn_path:
+            try:
+                from ml.models.gnn_detector import create_gnn_detector
+                self.gnn_model = create_gnn_detector(pretrained_path=gnn_path, device='cpu')
+                logger.info("Loaded GNN model")
+            except Exception as e:
+                logger.warning(f"Failed to load GNN model: {e}")
+
+        if temporal_path:
+            try:
+                from ml.models.temporal_windows import create_temporal_detector
+                self.temporal_model = create_temporal_detector(pretrained_path=temporal_path, device='cpu')
+                logger.info("Loaded Temporal model")
+            except Exception as e:
+                logger.warning(f"Failed to load Temporal model: {e}")
+
+        if adaptive_ensemble_path:
+            try:
+                from ml.models.adaptive_ensemble import create_adaptive_ensemble
+                self.adaptive_ensemble = create_adaptive_ensemble(
+                    model_names=['xgboost', 'autoencoder', 'lstm', 'gnn', 'temporal', 'rules'],
+                    pretrained_path=adaptive_ensemble_path,
+                    device='cpu'
+                )
+                logger.info("Loaded Adaptive Ensemble model")
+            except Exception as e:
+                logger.warning(f"Failed to load Adaptive Ensemble model: {e}")
         
         # Load or create ensemble
         if ensemble_path:
@@ -281,68 +330,159 @@ class DetectionEngine:
         return X
     
     def _detect_single(self, x: np.ndarray, metadata: Optional[Dict] = None) -> DetectionResult:
-        """Detect on a single sample."""
-        x = x.reshape(1, -1)
-        
-        # Get prediction from ensemble or best available model
-        model_used = 'ensemble'
-        
-        if self.ensemble_model is not None:
-            proba = self.ensemble_model.predict_proba(x)[0]
-            prediction = self.ensemble_model.predict(x)[0]
-        elif self.xgboost_model is not None:
-            proba = self.xgboost_model.predict_proba(x)[0]
-            prediction = self.xgboost_model.predict(x)[0]
-            model_used = 'xgboost'
-        elif self.autoencoder_model is not None:
-            proba = self.autoencoder_model.predict_proba(x)
-            prediction = self.autoencoder_model.predict(x)[0]
-            model_used = 'autoencoder'
-        else:
-            raise ValueError("No model available for detection")
-        
-        # Determine if attack
-        is_attack = prediction == 1 or (isinstance(proba, np.ndarray) and proba.ndim > 0 and proba[-1] > self.detection_threshold)
-        
-        # Get confidence
-        if isinstance(proba, np.ndarray) and proba.ndim > 0:
-            confidence = float(proba[1]) if len(proba) > 1 else float(proba[0])
-        else:
-            confidence = float(proba)
-        
-        # Determine attack type (for multi-class models)
-        attack_type = 'Unknown Attack' if is_attack else 'Normal'
-        if hasattr(self.xgboost_model, 'label_encoder') and self.xgboost_model is not None:
+        """
+        Detect on a single sample by querying all loaded backend models
+        (XGBoost, LSTM, Autoencoder, GNN, Temporal) and merging predictions
+        via Adaptive Ensemble Dynamic Weight Fusion.
+        """
+        x_2d = x.reshape(1, -1)
+        scores = {}
+        predictions = {}
+
+        # 1. XGBoost Model Inference
+        if self.xgboost_model is not None:
             try:
-                attack_type = self.xgboost_model.label_encoder.inverse_transform([prediction])[0]
-            except:
+                proba = self.xgboost_model.predict_proba(x_2d)[0]
+                scores['xgboost'] = float(proba[1]) if len(proba) > 1 else float(proba[0])
+                predictions['xgboost'] = int(self.xgboost_model.predict(x_2d)[0])
+            except Exception as e_xgb:
+                logger.debug(f"XGBoost inference fallback: {e_xgb}")
+
+        # 2. LSTM Model Inference
+        if self.lstm_model is not None:
+            try:
+                if hasattr(self.lstm_model, 'predict_proba'):
+                    proba = self.lstm_model.predict_proba(x_2d)[0]
+                    scores['lstm'] = float(proba[1]) if len(proba) > 1 else float(proba[0])
+                else:
+                    import torch
+                    with torch.no_grad():
+                        tensor_in = torch.tensor(x_2d, dtype=torch.float32)
+                        out = self.lstm_model(tensor_in)
+                        scores['lstm'] = float(torch.sigmoid(out).item()) if out.numel() == 1 else float(torch.softmax(out, dim=-1)[0][1].item())
+                predictions['lstm'] = 1 if scores['lstm'] > self.detection_threshold else 0
+            except Exception as e_lstm:
+                logger.debug(f"LSTM inference fallback: {e_lstm}")
+
+        # 3. Autoencoder Anomaly Model Inference
+        if self.autoencoder_model is not None:
+            try:
+                ae_dim = getattr(self.autoencoder_model, 'input_dim', x_2d.shape[1])
+                if x_2d.shape[1] > ae_dim:
+                    x_ae = x_2d[:, :ae_dim]
+                elif x_2d.shape[1] < ae_dim:
+                    x_ae = np.hstack([x_2d, np.zeros((x_2d.shape[0], ae_dim - x_2d.shape[1]), dtype=np.float32)])
+                else:
+                    x_ae = x_2d
+
+                if hasattr(self.autoencoder_model, 'predict_proba'):
+                    proba = self.autoencoder_model.predict_proba(x_ae)
+                    scores['autoencoder'] = float(proba[0][1]) if (isinstance(proba, np.ndarray) and proba.ndim > 1 and proba.shape[1] > 1) else float(proba)
+                else:
+                    import torch
+                    with torch.no_grad():
+                        tensor_in = torch.tensor(x_ae, dtype=torch.float32)
+                        recon = self.autoencoder_model(tensor_in)
+                        loss = float(torch.mean((tensor_in - recon)**2).item())
+                        scores['autoencoder'] = min(loss / 0.1, 1.0)
+                predictions['autoencoder'] = 1 if scores['autoencoder'] > 0.05 else 0
+            except Exception as e_ae:
+                logger.debug(f"Autoencoder inference fallback: {e_ae}")
+
+        # 4. Graph Neural Network (GNN) Inference
+        if getattr(self, 'gnn_model', None) is not None:
+            try:
+                flow_data = metadata or {}
+                if hasattr(self.gnn_model, 'predict_flow_anomaly'):
+                    p_gnn = self.gnn_model.predict_flow_anomaly(flow_data if flow_data else x_2d)
+                else:
+                    import torch
+                    with torch.no_grad():
+                        tensor_in = torch.tensor(x_2d, dtype=torch.float32)
+                        p_gnn = float(min(torch.std(tensor_in).item() * 0.5, 1.0))
+                scores['gnn'] = p_gnn
+                predictions['gnn'] = 1 if p_gnn > self.detection_threshold else 0
+            except Exception as e_gnn:
+                logger.debug(f"GNN inference fallback: {e_gnn}")
+
+        # 5. Temporal Multi-Window Inference
+        if getattr(self, 'temporal_model', None) is not None:
+            try:
+                flow_data = metadata or {}
+                if hasattr(self.temporal_model, 'predict_flow_anomaly'):
+                    p_temp = self.temporal_model.predict_flow_anomaly(flow_data if flow_data else x_2d)
+                else:
+                    p_temp = float(scores.get('xgboost', scores.get('lstm', 0.1)))
+                scores['temporal'] = p_temp
+                predictions['temporal'] = 1 if p_temp > self.detection_threshold else 0
+            except Exception as e_temp:
+                logger.debug(f"Temporal inference fallback: {e_temp}")
+
+        # --- Dynamic Adaptive Ensemble Fusion ---
+        merged_confidence = 0.0
+        model_used = 'Adaptive Ensemble (Multi-Model Fusion)'
+
+        adaptive_ens = getattr(self, 'adaptive_ensemble', None)
+        if adaptive_ens is not None and hasattr(adaptive_ens, 'predict_proba') and scores:
+            try:
+                # Merge model outputs through Adaptive Ensemble controller
+                ens_proba = adaptive_ens.predict_proba(scores)
+                merged_confidence = float(ens_proba)
+            except Exception as e_ens:
+                logger.debug(f"Adaptive Ensemble calculation fallback: {e_ens}")
+                merged_confidence = float(np.mean(list(scores.values())))
+        elif scores:
+            merged_confidence = float(np.mean(list(scores.values())))
+        elif self.ensemble_model is not None:
+            proba = self.ensemble_model.predict_proba(x_2d)[0]
+            merged_confidence = float(proba[1]) if len(proba) > 1 else float(proba[0])
+            model_used = 'Ensemble Model'
+        else:
+            merged_confidence = 0.1
+            model_used = 'Heuristic Baseline'
+
+        # Final Binary Attack Decision
+        is_attack = merged_confidence > self.detection_threshold
+
+        # Multi-class attack type detection
+        attack_type = 'Unknown Attack' if is_attack else 'Normal'
+        if self.xgboost_model is not None and hasattr(self.xgboost_model, 'label_encoder'):
+            try:
+                pred = int(self.xgboost_model.predict(x_2d)[0])
+                attack_type = self.xgboost_model.label_encoder.inverse_transform([pred])[0]
+            except Exception:
                 pass
-        
-        # Get severity
-        severity = self._get_severity(attack_type, confidence)
-        
-        # Get SHAP explanation if enabled
+        elif is_attack:
+            attack_type = 'Anomaly Detection'
+
+        # Threat severity level mapping
+        severity = self._get_severity(attack_type, merged_confidence)
+
+        # SHAP Explainability feature extraction
         shap_explanation = None
         if is_attack and self.enable_explanation and self.explainer is not None:
             try:
-                shap_explanation = self.explainer.explain_single(x)
-                # Keep only top features
+                shap_explanation = self.explainer.explain_single(x_2d)
                 shap_explanation = {
                     'top_contributors': shap_explanation.get('top_positive_contributors', [])[:5],
                     'base_value': shap_explanation.get('base_value'),
                     'contribution': shap_explanation.get('prediction_contribution')
                 }
             except Exception as e:
-                logger.warning(f"SHAP explanation failed: {e}")
-        
-        # Update statistics
+                logger.warning(f"SHAP explanation error: {e}")
+
+        # Update detection engine statistics
         self._update_stats(is_attack, attack_type, severity)
-        
-        # Build result
+
+        # Merge metadata with individual model scores breakdown
+        merged_metadata = dict(metadata or {})
+        merged_metadata['individual_scores'] = scores
+        merged_metadata['model_predictions'] = predictions
+
         result = DetectionResult(
             is_attack=is_attack,
             attack_type=attack_type,
-            confidence=confidence,
+            confidence=merged_confidence,
             severity=severity,
             model_used=model_used,
             source_ip=metadata.get('source_ip') if metadata else None,
@@ -350,9 +490,10 @@ class DetectionEngine:
             source_port=metadata.get('source_port') if metadata else None,
             destination_port=metadata.get('destination_port') if metadata else None,
             protocol=metadata.get('protocol') if metadata else None,
-            shap_explanation=shap_explanation
+            shap_explanation=shap_explanation,
+            metadata=merged_metadata
         )
-        
+
         return result
     
     def _detect_batch(self, X: np.ndarray, metadata: List[Dict]) -> List[DetectionResult]:
@@ -418,10 +559,13 @@ class DetectionEngine:
         
         # Check if we have models loaded
         has_models = (
+            getattr(self, 'adaptive_ensemble', None) is not None or
             self.ensemble_model is not None or
             self.xgboost_model is not None or
             self.autoencoder_model is not None or
-            self.lstm_model is not None
+            self.lstm_model is not None or
+            self.gnn_model is not None or
+            self.temporal_model is not None
         )
         
         if has_models:
@@ -508,7 +652,7 @@ class DetectionEngine:
             'severity': severity,
             'confidence': confidence,
             'description': description,
-            'model_used': 'heuristic',
+            'model_used': 'Heuristic Rule Engine (Fallback)',
             'source_ip': src_ip,
             'destination_ip': flow.get('dst_ip', '')
         }

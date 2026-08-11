@@ -264,13 +264,25 @@ class DataPreprocessor:
             X = X.values
         
         # Handle missing and infinite values
-        X = np.nan_to_num(X, nan=0, posinf=0, neginf=0)
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
         
-        # Impute and scale
-        X = self.imputer.transform(X)
-        X_scaled = self.scaler.transform(X)
+        # Impute if fitted
+        try:
+            from sklearn.utils.validation import check_is_fitted
+            check_is_fitted(self.imputer)
+            X = self.imputer.transform(X)
+        except Exception:
+            pass
         
-        return X_scaled
+        # Scale if fitted
+        try:
+            from sklearn.utils.validation import check_is_fitted
+            check_is_fitted(self.scaler)
+            X = self.scaler.transform(X)
+        except Exception:
+            pass
+
+        return X
     
     def prepare_data(
         self,
@@ -384,14 +396,23 @@ class DataPreprocessor:
         with open(path, 'rb') as f:
             state = pickle.load(f)
         
-        preprocessor = cls(config=state.get('config'))
-        preprocessor.scaler = state['scaler']
-        preprocessor.label_encoder = state['label_encoder']
-        preprocessor.imputer = state['imputer']
-        preprocessor.feature_columns = state['feature_columns']
-        preprocessor.numerical_columns = state['numerical_columns']
-        preprocessor.categorical_columns = state['categorical_columns']
-        preprocessor.fitted = state['fitted']
+        preprocessor = cls()
+        if isinstance(state, list):
+            preprocessor.feature_columns = state
+            preprocessor.numerical_columns = state
+            preprocessor.fitted = True
+            logger.info(f"Loaded feature columns preprocessor from list at {path}")
+            return preprocessor
+
+        if isinstance(state, dict):
+            preprocessor.config = state.get('config')
+            preprocessor.scaler = state.get('scaler')
+            preprocessor.label_encoder = state.get('label_encoder')
+            preprocessor.imputer = state.get('imputer')
+            preprocessor.feature_columns = state.get('feature_columns', [])
+            preprocessor.numerical_columns = state.get('numerical_columns', [])
+            preprocessor.categorical_columns = state.get('categorical_columns', [])
+            preprocessor.fitted = state.get('fitted', True)
         
         logger.info(f"Loaded preprocessor from {path}")
         return preprocessor

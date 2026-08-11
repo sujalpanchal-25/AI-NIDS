@@ -967,7 +967,66 @@ class TemporalAnomalyAnalyzer:
             result['alert'] = alert
         
         return result
-    
+
+    def predict_flow_anomaly(self, flow_data: Any) -> float:
+        """
+        Ingest flow data and return temporal anomaly probability score [0.0, 1.0].
+        """
+        try:
+            ts = datetime.utcnow()
+            src_ip = "192.168.1.1"
+            dst_ip = "10.0.0.1"
+            dst_port = 80
+            protocol = "TCP"
+            bytes_total = 1000
+            packets = 10
+            duration = 1.0
+
+            if isinstance(flow_data, dict):
+                ts = flow_data.get('timestamp', datetime.utcnow())
+                if isinstance(ts, str):
+                    try:
+                        ts = datetime.fromisoformat(ts)
+                    except:
+                        ts = datetime.utcnow()
+                src_ip = str(flow_data.get('src_ip', '192.168.1.1'))
+                dst_ip = str(flow_data.get('dst_ip', '10.0.0.1'))
+                dst_port = int(flow_data.get('dst_port', 80))
+                protocol = str(flow_data.get('protocol', 'TCP'))
+                bytes_s = float(flow_data.get('bytes_sent', 500))
+                bytes_r = float(flow_data.get('bytes_recv', 500))
+                bytes_total = int(bytes_s + bytes_r)
+                pkts_s = float(flow_data.get('packets_sent', 5))
+                pkts_r = float(flow_data.get('packets_recv', 5))
+                packets = int(pkts_s + pkts_r)
+                duration = float(flow_data.get('duration', 1.0))
+            elif isinstance(flow_data, (np.ndarray, torch.Tensor)):
+                x_arr = flow_data if isinstance(flow_data, np.ndarray) else flow_data.cpu().numpy()
+                if x_arr.size > 0:
+                    bytes_total = int(abs(float(x_arr.flat[0])) * 1000)
+                    packets = max(1, int(abs(float(x_arr.flat[min(1, x_arr.size-1)])) * 10))
+
+            self.ingest_flow(
+                timestamp=ts,
+                src_ip=src_ip,
+                dst_ip=dst_ip,
+                dst_port=dst_port,
+                protocol=protocol,
+                bytes_total=bytes_total,
+                packets=packets,
+                duration=duration
+            )
+
+            res = self.analyze()
+            if res.get('status') == 'analyzed':
+                pred = res.get('prediction', {})
+                return float(pred.get('anomaly_score', 0.15))
+            else:
+                return float(min(1.0, max(0.05, packets / 1000.0 + bytes_total / 100000.0)))
+        except Exception as e:
+            logger.debug(f"Temporal predict_flow_anomaly fallback: {e}")
+            return 0.15
+
     def _find_attention_peaks(
         self,
         attention: torch.Tensor,

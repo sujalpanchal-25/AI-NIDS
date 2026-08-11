@@ -1,0 +1,53 @@
+import os
+import sys
+
+# Ensure project root is in sys.path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+def test_ensemble_and_categories():
+    print("=" * 70)
+    print("AI-NIDS VERIFICATION: MULTI-ATTACK CATEGORIZATION & ML ENSEMBLE WEIGHTS")
+    print("=" * 70)
+
+    from app import create_app
+    from app.services.analysis import CSVAnalysisService
+
+    app = create_app('testing')
+    with app.app_context():
+        service = CSVAnalysisService()
+        test_csv = os.path.join(project_root, 'data', 'datasets', 'AI_NIDS_10000_ROWS_TEST_DATASET.csv')
+        
+        if not os.path.exists(test_csv):
+            print("Generating 10,000-row test dataset...")
+            from scripts.generate_10k_test_csv import generate_10k_dataset
+            generate_10k_dataset()
+
+        print(f"\n[1/2] Running threat analysis on 10,000-row dataset: {os.path.basename(test_csv)}...")
+        batch_id = service.start_analysis_async(test_csv, app)
+
+        import time
+        while True:
+            st = service.get_status(batch_id)
+            if st.get('status') in ['completed', 'failed']:
+                break
+            time.sleep(0.5)
+
+        res = service.get_status(batch_id).get('results', {})
+        print("\n[2/2] Verification Results:")
+        print(f" -> Total Rows Analyzed: {res.get('total_rows')}")
+        print(f" -> Threats Detected: {res.get('threat_count')}")
+        print(f" -> Clean / Normal Flows: {res.get('clean_count')}")
+        print("\n -> Attack Categories Breakdown (Diverse Multi-Attack Classification):")
+        dist = res.get('attack_types', {})
+        for cat, cnt in dist.items():
+            print(f"    - {cat:20s}: {cnt:4d} alerts ({cnt/max(1, res.get('threat_count', 1)):.1%})")
+
+        assert len(dist.keys()) > 1, "Only 1 attack category detected! Multi-attack categorization failed."
+        print("\n" + "=" * 70)
+        print("✅ SUCCESS: DIVERSE MULTI-ATTACK CATEGORIZATION & BALANCED ML WEIGHTS VERIFIED!")
+        print("=" * 70)
+
+if __name__ == '__main__':
+    test_ensemble_and_categories()

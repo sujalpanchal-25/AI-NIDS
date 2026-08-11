@@ -97,6 +97,14 @@ def create_app(config_name=None):
             db.session.add(admin)
             db.session.commit()
             app.logger.info('Created default admin user')
+        
+        # Ensure PWA icons exist in static/images/icons
+        try:
+            from app.utils.icon_generator import ensure_pwa_icons
+            icons_dir = os.path.join(app.root_path, 'static', 'images', 'icons')
+            ensure_pwa_icons(icons_dir)
+        except Exception as e_icons:
+            app.logger.warning(f"Failed to generate PWA icons: {e_icons}")
     
     # Register CLI commands
     register_cli_commands(app)

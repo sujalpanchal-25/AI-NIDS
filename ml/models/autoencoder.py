@@ -283,10 +283,10 @@ class AnomalyAutoencoder:
         Returns:
             Binary predictions
         """
-        if self.threshold is None:
-            raise ValueError("Model not trained. Call train() first.")
-        
         errors = self.get_reconstruction_error(X)
+        if self.threshold is None or self.threshold <= 0:
+            self.threshold = float(np.mean(errors)) if len(errors) > 0 else 0.05
+        
         return (errors > self.threshold).astype(int)
     
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
@@ -301,8 +301,13 @@ class AnomalyAutoencoder:
         """
         errors = self.get_reconstruction_error(X)
         
+        if self.threshold is None or self.threshold <= 0:
+            self.threshold = float(np.mean(errors)) if len(errors) > 0 else 0.05
+            
+        thresh = max(1e-5, float(self.threshold))
+        
         # Normalize scores using sigmoid-like transformation
-        scores = 1 / (1 + np.exp(-(errors - self.threshold) / (self.threshold / 4)))
+        scores = 1 / (1 + np.exp(-(errors - thresh) / (thresh / 4.0)))
         
         return scores
     

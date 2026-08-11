@@ -791,3 +791,40 @@ def is_valid_ip(s):
     except ValueError:
         return False
 
+
+@api_bp.route('/sources/top')
+def get_top_sources():
+    """Get top source IPs generating network traffic / alerts (for fuzzy search & dashboard)."""
+    limit = min(request.args.get('limit', 100, type=int), 500)
+    try:
+        from sqlalchemy import func
+        # Query top sources from NetworkFlow
+        top_sources = db.session.query(
+            NetworkFlow.source_ip.label('ip'),
+            func.count(NetworkFlow.id).label('count'),
+            func.sum(func.cast(NetworkFlow.is_anomaly, db.Integer)).label('threat_count')
+        ).group_by(NetworkFlow.source_ip).order_by(func.count(NetworkFlow.id).desc()).limit(limit).all()
+
+        if not top_sources:
+            # Fallback to Alert table
+            top_sources = db.session.query(
+                Alert.source_ip.label('ip'),
+                func.count(Alert.id).label('count'),
+                func.count(Alert.id).label('threat_count')
+            ).group_by(Alert.source_ip).order_by(func.count(Alert.id).desc()).limit(limit).all()
+
+        results = [
+            {
+                'ip': ts.ip,
+                'source_ip': ts.ip,
+                'count': ts.count,
+                'threat_count': getattr(ts, 'threat_count', 0) or 0
+            }
+            for ts in top_sources if ts.ip
+        ]
+        return jsonify({'sources': results, 'total': len(results)})
+    except Exception as e:
+        current_app.logger.error(f"Error fetching top sources: {e}")
+        return jsonify({'sources': [], 'total': 0})
+
+

@@ -516,9 +516,14 @@ class AdaptiveEnsemble(nn.Module):
         # Generate adaptive weights
         weights, attn_weights = self.weight_controller(context_tensor, history_tensor)
         
-        # Ensure minimum weight for all models
+        # Ensure minimum weight for registered models
         weights = weights + self.min_weight
-        weights = weights / weights.sum(dim=-1, keepdim=True)
+        
+        # Re-normalize weights strictly over ML models present in model_outputs
+        active_mask = torch.tensor([1.0 if name in model_outputs else 0.0 for name in self.model_names], device=weights.device)
+        weights = weights * active_mask
+        if weights.sum() > 0:
+            weights = weights / weights.sum(dim=-1, keepdim=True)
         
         # Combine model outputs
         combined_proba = torch.zeros_like(next(iter(model_outputs.values())))
@@ -718,8 +723,22 @@ class AdaptiveEnsemble(nn.Module):
     def load_state(self, path: str):
         """Load ensemble state."""
         state = torch.load(path, map_location=self.device)
-        self.weight_controller.load_state_dict(state['weight_controller'])
-        self.model_names = state.get('model_names', self.model_names)
+        saved_models = state.get('model_names')
+        wc_state = state.get('weight_controller')
+        if wc_state and 'weight_generator.3.weight' in wc_state:
+            saved_num = wc_state['weight_generator.3.weight'].shape[0]
+            if saved_num != len(self.model_names):
+                if saved_models and len(saved_models) == saved_num:
+                    self.model_names = saved_models
+                else:
+                    self.model_names = self.model_names[:saved_num]
+                self.weight_controller = LSTMWeightController(
+                    num_models=saved_num
+                ).to(self.device)
+        try:
+            self.weight_controller.load_state_dict(wc_state)
+        except Exception as e:
+            logger.warning(f"Adaptive ensemble partial state load fallback: {e}")
         self.stats['total_predictions'] = state.get('stats', {}).get('total_predictions', 0)
         logger.info(f"Loaded adaptive ensemble state from {path}")
 

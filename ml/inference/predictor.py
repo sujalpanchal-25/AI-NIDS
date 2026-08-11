@@ -42,6 +42,9 @@ class ModelPredictor:
         self.autoencoder = None
         self.lstm = None
         self.xgboost = None
+        self.gnn = None
+        self.temporal = None
+        self.adaptive_ensemble = None
         
         # Load configuration
         self.threshold = self.config.get('threshold', 0.5)
@@ -67,6 +70,13 @@ class ModelPredictor:
         
         logger.info("ModelPredictor initialized successfully")
     
+    def is_loaded(self) -> bool:
+        """Check if any backend ML/DL models are loaded."""
+        return any(m is not None for m in [
+            self.xgboost, self.autoencoder, self.lstm, 
+            self.gnn, self.temporal, self.adaptive_ensemble, self.ensemble
+        ])
+
     def _load_models(self) -> bool:
         """
         Load trained models from disk.
@@ -75,29 +85,109 @@ class ModelPredictor:
             True if models loaded successfully
         """
         try:
-            # Check if model directory exists
             if not os.path.exists(self.model_path):
-                logger.warning(f"Model path does not exist: {self.model_path}")
-                self._initialize_default_models()
-                return False
+                # Try finding models in project root models/ if relative path doesn't exist
+                project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+                alt_path = os.path.join(project_root, 'models')
+                if os.path.exists(alt_path):
+                    self.model_path = alt_path
+                else:
+                    logger.warning(f"Model path does not exist: {self.model_path}")
+                    self._initialize_default_models()
+                    return False
             
-            # Load ensemble model if available
+            # Load feature columns
+            feature_path = os.path.join(self.model_path, 'feature_columns.pkl')
+            if os.path.exists(feature_path):
+                try:
+                    with open(feature_path, 'rb') as f:
+                        self.feature_names = pickle.load(f)
+                        self.num_features = len(self.feature_names)
+                except Exception as e:
+                    logger.warning(f"Failed to load feature columns: {e}")
+
+            # 1. XGBoost
+            xgb_path = os.path.join(self.model_path, 'xgboost_model.pkl')
+            if os.path.exists(xgb_path):
+                try:
+                    with open(xgb_path, 'rb') as f:
+                        self.xgboost = pickle.load(f)
+                    logger.info("Loaded XGBoost model")
+                except Exception as e:
+                    logger.warning(f"Failed to load XGBoost: {e}")
+
+            # 2. Autoencoder
+            ae_path = os.path.join(self.model_path, 'autoencoder_model.pt')
+            if os.path.exists(ae_path):
+                try:
+                    from ml.models.autoencoder import AnomalyAutoencoder
+                    self.autoencoder = AnomalyAutoencoder.load(ae_path)
+                    logger.info("Loaded Autoencoder model")
+                except Exception as e:
+                    logger.warning(f"Failed to load Autoencoder: {e}")
+
+            # 3. LSTM
+            lstm_path = os.path.join(self.model_path, 'lstm_model.pt')
+            if not os.path.exists(lstm_path):
+                lstm_path = os.path.join(self.model_path, 'lstm_detector.pt')
+            if os.path.exists(lstm_path):
+                try:
+                    from ml.models.lstm_detector import LSTMDetector
+                    self.lstm = LSTMDetector.load(lstm_path)
+                    logger.info("Loaded LSTM model")
+                except Exception as e:
+                    logger.warning(f"Failed to load LSTM: {e}")
+
+            # 4. GNN
+            gnn_path = os.path.join(self.model_path, 'gnn_model.pt')
+            if os.path.exists(gnn_path):
+                try:
+                    from ml.models.gnn_detector import create_gnn_detector
+                    self.gnn = create_gnn_detector(pretrained_path=gnn_path, device='cpu')
+                    logger.info("Loaded GNN model")
+                except Exception as e:
+                    logger.warning(f"Failed to load GNN: {e}")
+
+            # 5. Temporal
+            temporal_path = os.path.join(self.model_path, 'temporal_detector.pt')
+            if os.path.exists(temporal_path):
+                try:
+                    from ml.models.temporal_windows import create_temporal_detector
+                    self.temporal = create_temporal_detector(pretrained_path=temporal_path, device='cpu')
+                    logger.info("Loaded Temporal model")
+                except Exception as e:
+                    logger.warning(f"Failed to load Temporal model: {e}")
+
+            # 6. Adaptive Ensemble
+            adaptive_path = os.path.join(self.model_path, 'adaptive_ensemble.pt')
+            if os.path.exists(adaptive_path):
+                try:
+                    from ml.models.adaptive_ensemble import create_adaptive_ensemble
+                    self.adaptive_ensemble = create_adaptive_ensemble(
+                        model_names=['xgboost', 'autoencoder', 'lstm', 'gnn', 'temporal', 'rules'],
+                        pretrained_path=adaptive_path,
+                        device='cpu'
+                    )
+                    logger.info("Loaded Adaptive Ensemble model")
+                except Exception as e:
+                    logger.warning(f"Failed to load Adaptive Ensemble model: {e}")
+
+            # Legacy ensemble fallback
             ensemble_path = os.path.join(self.model_path, 'ensemble_model.pkl')
             if os.path.exists(ensemble_path):
-                with open(ensemble_path, 'rb') as f:
-                    self.ensemble = pickle.load(f)
-                logger.info("Loaded ensemble model")
-            
-            # Load feature config
-            config_path = os.path.join(self.model_path, 'feature_config.json')
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    feature_config = json.load(f)
-                    self.feature_names = feature_config.get('feature_names', [])
-                    self.num_features = len(self.feature_names)
-            
-            self.metadata['status'] = 'loaded'
-            return True
+                try:
+                    with open(ensemble_path, 'rb') as f:
+                        self.ensemble = pickle.load(f)
+                    logger.info("Loaded legacy ensemble model")
+                except Exception as e:
+                    pass
+
+            if self.is_loaded():
+                self.metadata['status'] = 'loaded'
+                return True
+            else:
+                self._initialize_default_models()
+                return False
             
         except Exception as e:
             logger.error(f"Error loading models: {e}")
@@ -107,7 +197,8 @@ class ModelPredictor:
     def _initialize_default_models(self) -> None:
         """Initialize default/placeholder models for demo mode."""
         self.metadata['status'] = 'demo_mode'
-        self.num_features = 41  # Standard network flow features
+        if not self.num_features:
+            self.num_features = 41
         logger.info("Running in demo mode with placeholder models")
     
     def predict(

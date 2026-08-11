@@ -334,12 +334,20 @@ class XGBoostClassifier:
             state = pickle.load(f)
         
         classifier = cls()
-        classifier.model = state['model']
-        classifier.params = state['params']
-        classifier.feature_names = state['feature_names']
-        classifier.feature_importances_ = state['feature_importances']
-        classifier.training_history = state['training_history']
-        classifier.metadata = state['metadata']
+        if isinstance(state, dict):
+            classifier.model = state.get('model')
+            classifier.params = state.get('params', {})
+            classifier.feature_names = state.get('feature_names', [])
+            classifier.feature_importances_ = state.get('feature_importances')
+            classifier.training_history = state.get('training_history', {})
+            classifier.metadata = state.get('metadata', {})
+        else:
+            # Raw XGBClassifier object
+            classifier.model = state
+            if hasattr(state, 'feature_names_in_'):
+                classifier.feature_names = list(state.feature_names_in_)
+            if hasattr(state, 'feature_importances_'):
+                classifier.feature_importances_ = state.feature_importances_
         
         logger.info(f"Loaded XGBoost model from {path}")
         return classifier
