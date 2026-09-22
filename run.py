@@ -14,8 +14,24 @@ import sys
 import argparse
 from pathlib import Path
 
+# Fix Windows console UTF-8 / charmap encoding issues
+if sys.platform == 'win32':
+    try:
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        if hasattr(sys.stderr, 'reconfigure'):
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# Ensure matplotlib uses a writable local directory inside the project
+mpl_dir = PROJECT_ROOT / 'data' / '.matplotlib'
+mpl_dir.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault('MPLCONFIGDIR', str(mpl_dir))
 
 from app import create_app
 from config import get_config
@@ -65,7 +81,8 @@ def main():
     app = create_app()
     
     # Print startup banner
-    print("""
+    try:
+        print("""
     ╔═══════════════════════════════════════════════════════════════╗
     ║                                                               ║
     ║     █████╗ ██╗      ███╗   ██╗██╗██████╗ ███████╗            ║
@@ -73,15 +90,25 @@ def main():
     ║    ███████║██║█████╗██╔██╗ ██║██║██║  ██║███████╗            ║
     ║    ██╔══██║██║╚════╝██║╚██╗██║██║██║  ██║╚════██║            ║
     ║    ██║  ██║██║      ██║ ╚████║██║██████╔╝███████║            ║
-    ║    ╚═╝  ╚═╝╚═╝      ╚═╝  ╚═══╝╚═╝╚═════╝ ╚══════╝            ║
+    ╚═╝  ╚═╝╚═╝      ╚═╝  ╚═══╝╚═╝╚═════╝ ╚══════╝            ║
     ║                                                               ║
     ║    AI-Powered Network Intrusion Detection System              ║
     ║    Version 1.0.0 | SOC-Grade Security                         ║
     ║                                                               ║
     ╚═══════════════════════════════════════════════════════════════╝
     """)
+    except UnicodeEncodeError:
+        print("""
+    =================================================================
+             AI-NIDS: Network Intrusion Detection System
+             Version 1.0.0 | SOC-Grade Security
+    =================================================================
+    """)
     
-    print(f"    🚀 Starting AI-NIDS...")
+    try:
+        print(f"    🚀 Starting AI-NIDS...")
+    except UnicodeEncodeError:
+        print(f"    [*] Starting AI-NIDS...")
     print(f"    📍 Environment: {os.environ.get('FLASK_ENV', 'development')}")
     print(f"    🌐 URL: http://{args.host}:{args.port}")
     print(f"    📊 Dashboard: http://{args.host}:{args.port}/dashboard")

@@ -745,6 +745,11 @@ class PCAPBatchProcessor:
 
 
 # Convenience function
+def create_pcap_handler() -> PCAPHandler:
+    """Factory function to create a PCAPHandler instance."""
+    return PCAPHandler()
+
+
 def analyze_pcap(filepath: str, max_packets: Optional[int] = None) -> Dict[str, Any]:
     """
     Quick analysis of a PCAP file.

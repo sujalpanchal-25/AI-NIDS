@@ -12,6 +12,11 @@ from pathlib import Path
 # Base directory
 BASE_DIR = Path(__file__).resolve().parent
 
+# Ensure matplotlib uses a writable directory inside the project
+mpl_dir = BASE_DIR / 'data' / '.matplotlib'
+mpl_dir.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault('MPLCONFIGDIR', str(mpl_dir))
+
 
 class Config:
     """Base configuration class."""
@@ -184,8 +189,17 @@ class ProductionConfig(Config):
     """Production configuration."""
     DEBUG = False
     
-    # Use environment variables in production with fallbacks
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'ai-nids-production-secret-key-2024'
+    # In production, SECRET_KEY MUST be set via environment variable
+    @property
+    def SECRET_KEY(self):
+        key = os.environ.get('SECRET_KEY')
+        if not key:
+            raise RuntimeError(
+                "SECRET_KEY environment variable is not set. "
+                "Set it in your .env file or system environment before running in production."
+            )
+        return key
+
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or f'sqlite:///{BASE_DIR / "data" / "nids.db"}'
     
     # Azure SQL connection string format

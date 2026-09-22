@@ -8,7 +8,7 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler, LabelEncoder, MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
-from typing import Tuple, List, Dict, Optional, Union
+from typing import Tuple, List, Dict, Optional, Union, Any
 import pickle
 import os
 import logging
@@ -284,6 +284,171 @@ class DataPreprocessor:
 
         return X
     
+    def extract_features_from_live_flow(self, flow: Dict[str, Any]) -> np.ndarray:
+        """
+        Convert a live network flow dictionary into the exact ML feature vector
+        matching the expected feature columns and trained scaling transformation.
+        
+        Args:
+            flow: Dictionary containing live flow metrics (e.g. from FlowTracker.to_dict())
+            
+        Returns:
+            2D numpy array of shape (1, num_features) with preprocessed/scaled features
+        """
+        # Determine target feature columns
+        feature_cols = self.feature_columns
+        if not feature_cols:
+            # Attempt to load feature columns from models directory if available
+            import os, pickle
+            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+            feat_path = os.path.join(base_dir, 'models', 'feature_columns.pkl')
+            if os.path.exists(feat_path):
+                try:
+                    with open(feat_path, 'rb') as f:
+                        feature_cols = pickle.load(f)
+                    self.feature_columns = feature_cols
+                except Exception:
+                    feature_cols = self.default_features
+            else:
+                feature_cols = self.default_features
+
+        # Extract core fields from live flow
+        duration = float(flow.get('duration', flow.get('dur', flow.get('flow_duration', 0.0))))
+        duration_safe = max(duration, 0.0001)
+
+        packets_sent = float(flow.get('packets_sent', flow.get('packets_forward', flow.get('spkts', flow.get('count', 0.0)))))
+        packets_recv = float(flow.get('packets_recv', flow.get('packets_backward', flow.get('dpkts', flow.get('srv_count', 0.0)))))
+        total_packets = float(flow.get('total_packets', packets_sent + packets_recv))
+        if total_packets == 0.0 and (packets_sent > 0 or packets_recv > 0):
+            total_packets = packets_sent + packets_recv
+
+        bytes_sent = float(flow.get('bytes_sent', flow.get('sbytes', flow.get('src_bytes', 0.0))))
+        bytes_recv = float(flow.get('bytes_recv', flow.get('dbytes', flow.get('dst_bytes', 0.0))))
+
+        syn_count = float(flow.get('syn_count', 0.0))
+        rst_count = float(flow.get('rst_count', 0.0))
+
+        src_ip = str(flow.get('source_ip', flow.get('src_ip', '')))
+        dst_ip = str(flow.get('destination_ip', flow.get('dst_ip', '')))
+        src_port = float(flow.get('source_port', flow.get('src_port', 0)))
+        dst_port = float(flow.get('destination_port', flow.get('dst_port', 0)))
+
+        iat_mean = float(flow.get('iat_mean', 0.0))
+        iat_std = float(flow.get('iat_std', 0.0))
+
+        # Calculate derived statistics matching ML feature definitions
+        rate = total_packets / duration_safe
+        sload = (bytes_sent * 8.0) / duration_safe
+        dload = (bytes_recv * 8.0) / duration_safe
+
+        sinpkt = (duration * 1000.0) / max(packets_sent, 1.0) if packets_sent > 0 else (iat_mean * 1000.0)
+        dinpkt = (duration * 1000.0) / max(packets_recv, 1.0) if packets_recv > 0 else 0.0
+
+        smean = bytes_sent / max(packets_sent, 1.0) if packets_sent > 0 else float(flow.get('packet_length_mean', 0.0))
+        dmean = bytes_recv / max(packets_recv, 1.0) if packets_recv > 0 else 0.0
+
+        serror_rate = syn_count / max(packets_sent, 1.0) if syn_count > 0 else float(flow.get('serror_rate', 0.0))
+        rerror_rate = rst_count / max(total_packets, 1.0) if rst_count > 0 else float(flow.get('rerror_rate', 0.0))
+
+        is_sm_ips_ports = 1.0 if (src_ip and dst_ip and src_ip == dst_ip and src_port == dst_port and src_port != 0) else 0.0
+        land = is_sm_ips_ports
+        is_ftp_login = 1.0 if (src_port == 21 or dst_port == 21) else 0.0
+        ct_flw_http_mthd = 1.0 if dst_port in [80, 443, 8080] else 0.0
+
+        # Build feature map for standard ML feature names
+        feature_map = {
+            'duration': duration,
+            'packets_sent': packets_sent,
+            'packets_recv': packets_recv,
+            'bytes_sent': bytes_sent,
+            'bytes_recv': bytes_recv,
+            'rate': rate,
+            'src_ttl': float(flow.get('src_ttl', 64.0)),
+            'dst_ttl': float(flow.get('dst_ttl', 64.0)),
+            'sload': sload,
+            'dload': dload,
+            'sloss': float(flow.get('sloss', rst_count)),
+            'dloss': float(flow.get('dloss', 0.0)),
+            'sinpkt': sinpkt,
+            'dinpkt': dinpkt,
+            'sjit': float(flow.get('sjit', iat_std * 1000.0)),
+            'djit': float(flow.get('djit', 0.0)),
+            'swin': float(flow.get('swin', 255.0)),
+            'stcpb': float(flow.get('stcpb', 0.0)),
+            'dtcpb': float(flow.get('dtcpb', 0.0)),
+            'dwin': float(flow.get('dwin', 255.0)),
+            'tcprtt': float(flow.get('tcprtt', 0.0)),
+            'synack': float(flow.get('synack', 0.0)),
+            'ackdat': float(flow.get('ackdat', 0.0)),
+            'smean': smean,
+            'dmean': dmean,
+            'trans_depth': float(flow.get('trans_depth', 0.0)),
+            'response_body_len': float(flow.get('response_body_len', 0.0)),
+            'ct_srv_src': float(flow.get('ct_srv_src', 1.0)),
+            'ct_state_ttl': float(flow.get('ct_state_ttl', 0.0)),
+            'ct_dst_ltm': float(flow.get('ct_dst_ltm', 1.0)),
+            'ct_src_dport_ltm': float(flow.get('ct_src_dport_ltm', dst_port)),
+            'ct_dst_sport_ltm': float(flow.get('ct_dst_sport_ltm', src_port)),
+            'ct_dst_src_ltm': float(flow.get('ct_dst_src_ltm', 1.0)),
+            'is_ftp_login': float(flow.get('is_ftp_login', is_ftp_login)),
+            'ct_ftp_cmd': float(flow.get('ct_ftp_cmd', 0.0)),
+            'ct_flw_http_mthd': float(flow.get('ct_flw_http_mthd', ct_flw_http_mthd)),
+            'ct_src_ltm': float(flow.get('ct_src_ltm', 1.0)),
+            'ct_srv_dst': float(flow.get('ct_srv_dst', 1.0)),
+            'is_sm_ips_ports': float(flow.get('is_sm_ips_ports', is_sm_ips_ports)),
+            'land': float(flow.get('land', land)),
+            'wrong_fragment': float(flow.get('wrong_fragment', 0.0)),
+            'urgent': float(flow.get('urgent', flow.get('urg_count', 0.0))),
+            'hot': float(flow.get('hot', 0.0)),
+            'num_failed_logins': float(flow.get('num_failed_logins', 0.0)),
+            'logged_in': float(flow.get('logged_in', 0.0)),
+            'num_compromised': float(flow.get('num_compromised', 0.0)),
+            'root_shell': float(flow.get('root_shell', 0.0)),
+            'su_attempted': float(flow.get('su_attempted', 0.0)),
+            'num_root': float(flow.get('num_root', 0.0)),
+            'num_file_creations': float(flow.get('num_file_creations', 0.0)),
+            'num_shells': float(flow.get('num_shells', 0.0)),
+            'num_access_files': float(flow.get('num_access_files', 0.0)),
+            'num_outbound_cmds': float(flow.get('num_outbound_cmds', 0.0)),
+            'is_host_login': float(flow.get('is_host_login', 0.0)),
+            'is_guest_login': float(flow.get('is_guest_login', 0.0)),
+            'serror_rate': serror_rate,
+            'srv_serror_rate': float(flow.get('srv_serror_rate', 0.0)),
+            'rerror_rate': rerror_rate,
+            'srv_rerror_rate': float(flow.get('srv_rerror_rate', 0.0)),
+            'same_srv_rate': float(flow.get('same_srv_rate', 1.0)),
+            'diff_srv_rate': float(flow.get('diff_srv_rate', 0.0)),
+            'srv_diff_host_rate': float(flow.get('srv_diff_host_rate', 0.0)),
+            'dst_host_count': float(flow.get('dst_host_count', 1.0)),
+            'dst_host_srv_count': float(flow.get('dst_host_srv_count', 1.0)),
+            'dst_host_same_srv_rate': float(flow.get('dst_host_same_srv_rate', 1.0)),
+            'dst_host_diff_srv_rate': float(flow.get('dst_host_diff_srv_rate', 0.0)),
+            'dst_host_same_src_port_rate': float(flow.get('dst_host_same_src_port_rate', 0.0)),
+            'dst_host_srv_diff_host_rate': float(flow.get('dst_host_srv_diff_host_rate', 0.0)),
+            'dst_host_serror_rate': float(flow.get('dst_host_serror_rate', 0.0)),
+            'dst_host_srv_serror_rate': float(flow.get('dst_host_srv_serror_rate', 0.0)),
+            'dst_host_rerror_rate': float(flow.get('dst_host_rerror_rate', 0.0)),
+            'dst_host_srv_rerror_rate': float(flow.get('dst_host_srv_rerror_rate', 0.0)),
+        }
+
+        # Map features into exact column order
+        raw_values = []
+        for col in feature_cols:
+            if col in feature_map:
+                raw_values.append(feature_map[col])
+            elif col in flow:
+                try:
+                    raw_values.append(float(flow[col]))
+                except (ValueError, TypeError):
+                    raw_values.append(0.0)
+            else:
+                raw_values.append(0.0)
+
+        X_raw = np.array([raw_values], dtype=np.float32)
+
+        # Apply fitted scaling transformation if preprocessor/scaler is fitted
+        return self.transform(X_raw)
+
     def prepare_data(
         self,
         df: pd.DataFrame,

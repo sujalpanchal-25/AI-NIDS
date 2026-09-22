@@ -6,6 +6,13 @@ Main application package initialization.
 
 import os
 import logging
+from pathlib import Path
+
+# Ensure matplotlib uses a writable local directory inside the project
+_mpl_dir = Path(__file__).resolve().parent.parent / 'data' / '.matplotlib'
+_mpl_dir.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault('MPLCONFIGDIR', str(_mpl_dir))
+
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
@@ -62,14 +69,10 @@ def create_app(config_name=None):
     
     # Create database tables
     with app.app_context():
-        # Drop all tables on start to start fresh
-        try:
-            db.drop_all()
-            app.logger.info("Dropped all tables for a fresh start")
-        except Exception as e:
-            app.logger.error(f"Failed to drop tables: {e}")
-            db.session.rollback()
-            
+        # Import models so SQLAlchemy metadata is aware of all tables before db.create_all
+        from app.models import database
+        
+        # Ensure all tables exist
         db.create_all()
         
         # Clean up uploaded files in datasets directory (except sample files) - disabled to support dataset selection dropdown
@@ -149,16 +152,20 @@ def register_blueprints(app):
     from app.routes.alerts import alerts_bp
     from app.routes.analytics import analytics_bp
     from app.routes.ai_models import ai_models_bp
+    from app.routes.live_routes import live_routes_bp
     
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(api_bp, url_prefix='/api/v1')
+    app.register_blueprint(live_routes_bp, url_prefix='/api/live')
+    app.register_blueprint(live_routes_bp, url_prefix='/api/v1/live', name='live_routes_v1')
     app.register_blueprint(alerts_bp, url_prefix='/alerts')
     app.register_blueprint(analytics_bp, url_prefix='/analytics')
     app.register_blueprint(ai_models_bp)
     
-    # Exempt API blueprint from CSRF protection
+    # Exempt API blueprints from CSRF protection for ease of API integrations & testing
     csrf.exempt(api_bp)
+    csrf.exempt(live_routes_bp)
 
 
 def register_error_handlers(app):

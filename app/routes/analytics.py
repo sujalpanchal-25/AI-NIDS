@@ -273,54 +273,54 @@ def api_timeline():
     
     if metric == 'alerts':
         # Try recent data first
-        data = db.session.query(
+        data = filter_query(db.session.query(
             func.strftime(format_str, Alert.timestamp).label('period'),
             func.count().label('value')
-        ).filter(
+        ), Alert).filter(
             Alert.timestamp >= start_date,
             Alert.timestamp <= end_date
         ).group_by('period').order_by('period').all()
         
         # If no recent data, get all data
         if not data:
-            data = db.session.query(
+            data = filter_query(db.session.query(
                 func.strftime(format_str, Alert.timestamp).label('period'),
                 func.count().label('value')
-            ).group_by('period').order_by('period').all()
+            ), Alert).group_by('period').order_by('period').all()
     
     elif metric == 'flows':
         # Try recent data first
-        data = db.session.query(
+        data = filter_query(db.session.query(
             func.strftime(format_str, NetworkFlow.timestamp).label('period'),
             func.count().label('value')
-        ).filter(
+        ), NetworkFlow).filter(
             NetworkFlow.timestamp >= start_date,
             NetworkFlow.timestamp <= end_date
         ).group_by('period').order_by('period').all()
         
         # If no recent data, get all data
         if not data:
-            data = db.session.query(
+            data = filter_query(db.session.query(
                 func.strftime(format_str, NetworkFlow.timestamp).label('period'),
                 func.count().label('value')
-            ).group_by('period').order_by('period').all()
+            ), NetworkFlow).group_by('period').order_by('period').all()
     
     elif metric == 'bytes':
         # Try recent data first
-        data = db.session.query(
+        data = filter_query(db.session.query(
             func.strftime(format_str, NetworkFlow.timestamp).label('period'),
             func.sum(NetworkFlow.total_bytes).label('value')
-        ).filter(
+        ), NetworkFlow).filter(
             NetworkFlow.timestamp >= start_date,
             NetworkFlow.timestamp <= end_date
         ).group_by('period').order_by('period').all()
         
         # If no recent data, get all data
         if not data:
-            data = db.session.query(
+            data = filter_query(db.session.query(
                 func.strftime(format_str, NetworkFlow.timestamp).label('period'),
                 func.sum(NetworkFlow.total_bytes).label('value')
-            ).group_by('period').order_by('period').all()
+            ), NetworkFlow).group_by('period').order_by('period').all()
     
     else:
         return jsonify({'error': 'Invalid metric'}), 400
@@ -340,19 +340,19 @@ def api_severity_distribution():
     start_date = datetime.utcnow() - timedelta(days=days)
     
     # Try recent data first
-    data = db.session.query(
+    data = filter_query(db.session.query(
         Alert.severity,
         func.count().label('count')
-    ).filter(
+    ), Alert).filter(
         Alert.timestamp >= start_date
     ).group_by(Alert.severity).all()
     
     # If no recent data, get all data
     if not data:
-        data = db.session.query(
+        data = filter_query(db.session.query(
             Alert.severity,
             func.count().label('count')
-        ).group_by(Alert.severity).all()
+        ), Alert).group_by(Alert.severity).all()
     
     # Ensure all severities are present
     severity_order = ['critical', 'high', 'medium', 'low', 'info']
@@ -376,19 +376,19 @@ def api_attack_types():
     start_date = datetime.utcnow() - timedelta(days=days)
     
     # Try recent data first
-    data = db.session.query(
+    data = filter_query(db.session.query(
         Alert.attack_type,
         func.count().label('count')
-    ).filter(
+    ), Alert).filter(
         Alert.timestamp >= start_date
     ).group_by(Alert.attack_type).order_by(func.count().desc()).limit(10).all()
     
     # If no recent data, get all data
     if not data:
-        data = db.session.query(
+        data = filter_query(db.session.query(
             Alert.attack_type,
             func.count().label('count')
-        ).group_by(Alert.attack_type).order_by(func.count().desc()).limit(10).all()
+        ), Alert).group_by(Alert.attack_type).order_by(func.count().desc()).limit(10).all()
     
     return jsonify({
         'labels': [d.attack_type or 'Unknown' for d in data],

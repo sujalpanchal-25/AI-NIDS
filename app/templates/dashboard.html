@@ -43,6 +43,73 @@
         </div>
     </div>
 
+    <!-- Live Monitoring Panel -->
+    <div class="live-monitoring-panel cyber-panel mb-4">
+        <div class="panel-border"></div>
+        <div class="panel-header d-flex align-items-center justify-content-between flex-wrap gap-2 p-3 border-bottom border-secondary border-opacity-25">
+            <div class="d-flex align-items-center gap-3">
+                <h3 class="m-0 cyber-title fs-5 d-flex align-items-center gap-2">
+                    <span class="live-status-dot stopped" id="live-status-pulse"></span>
+                    <span>LIVE MONITORING</span>
+                </h3>
+                <span id="live-status-badge" class="badge bg-secondary px-3 py-2 fs-6">STOPPED</span>
+            </div>
+            
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <label for="live-interface-select" class="text-secondary small me-1">INTERFACE:</label>
+                <select id="live-interface-select" class="cyber-select me-2" style="min-width: 220px;">
+                    <option value="">Loading interfaces...</option>
+                </select>
+                <button id="btn-start-monitoring" class="btn cyber-btn-start btn-sm" onclick="startLiveMonitoring()">
+                    <i class="bi bi-play-fill me-1"></i> START MONITORING
+                </button>
+                <button id="btn-stop-monitoring" class="btn cyber-btn-stop btn-sm" onclick="stopLiveMonitoring()" disabled>
+                    <i class="bi bi-stop-fill me-1"></i> STOP MONITORING
+                </button>
+            </div>
+        </div>
+        
+        <div class="panel-body p-3">
+            <div class="row g-3">
+                <div class="col-6 col-md-4 col-lg-2">
+                    <div class="live-metric-box text-center p-2 rounded bg-dark bg-opacity-50 border border-secondary border-opacity-25">
+                        <span class="text-secondary small d-block mb-1">PACKETS CAPTURED</span>
+                        <h4 id="live-packets-captured" class="cyber-number text-info m-0">0</h4>
+                    </div>
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <div class="live-metric-box text-center p-2 rounded bg-dark bg-opacity-50 border border-secondary border-opacity-25">
+                        <span class="text-secondary small d-block mb-1">FLOWS PROCESSED</span>
+                        <h4 id="live-flows-processed" class="cyber-number text-primary m-0">0</h4>
+                    </div>
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <div class="live-metric-box text-center p-2 rounded bg-dark bg-opacity-50 border border-secondary border-opacity-25">
+                        <span class="text-secondary small d-block mb-1">THREATS DETECTED</span>
+                        <h4 id="live-threats-detected" class="cyber-number text-danger m-0">0</h4>
+                    </div>
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <div class="live-metric-box text-center p-2 rounded bg-dark bg-opacity-50 border border-secondary border-opacity-25">
+                        <span class="text-secondary small d-block mb-1">BENIGN TRAFFIC</span>
+                        <h4 id="live-benign-traffic" class="cyber-number text-success m-0">0</h4>
+                    </div>
+                </div>
+                <div class="col-12 col-md-8 col-lg-4">
+                    <div class="live-metric-box p-2 rounded bg-dark bg-opacity-50 border border-secondary border-opacity-25 h-100 d-flex flex-column justify-content-center">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="text-secondary small">LAST DETECTED THREAT:</span>
+                            <span id="live-last-update" class="text-muted small" style="font-size: 0.75rem;">N/A</span>
+                        </div>
+                        <div id="live-last-threat-container" class="text-truncate fw-bold text-warning small">
+                            <span id="live-last-threat">None</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Stats Cards -->
     <div class="stats-row cyber-stats">
         <div class="stat-card cyber-card">
@@ -1591,15 +1658,15 @@
     });
     }
 
-    // Refresh Dashboard - SYNC BUTTON
-    function refreshDashboard() {
+    // Refresh Dashboard - SYNC BUTTON or Silent Poll
+    function refreshDashboard(silent = false) {
         const syncBtn = document.querySelector('.cyber-btn-refresh');
-        if (syncBtn) {
+        if (!silent && syncBtn) {
             syncBtn.classList.add('syncing');
             syncBtn.innerHTML = '<i class="bi bi-arrow-repeat spinning"></i><span>SYNCING...</span>';
         }
 
-        fetch('/dashboard/sync')
+        return fetch('/dashboard/sync')
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
@@ -1631,7 +1698,6 @@
                         const attackCtx = document.getElementById('attackChart');
                         if (attackCtx) {
                             if (data.attack_distribution.labels && data.attack_distribution.labels.length > 0) {
-                                // Re-initialize container if placeholder state was shown
                                 const canvasTest = document.getElementById('attackChart');
                                 if (!canvasTest) {
                                     attackCtx.parentElement.innerHTML = '<div style="position:relative;height:220px;width:100%;"><canvas id="attackChart"></canvas></div>';
@@ -1644,7 +1710,6 @@
                                     attackChart.update();
                                 }
                             } else {
-                                // Empty state placeholder
                                 attackCtx.parentElement.innerHTML = `
                                     <div class="empty-chart-state">
                                         <i class="bi bi-shield-check" style="font-size: 3rem; color: #00d26a;"></i>
@@ -1742,16 +1807,19 @@
                         }
                     }
 
-                    // Show success feedback
-                    showToast('Dashboard synchronized', 'success');
+                    if (!silent) {
+                        showToast('Dashboard synchronized', 'success');
+                    }
                 }
             })
             .catch(err => {
                 console.error('Sync error:', err);
-                showToast('Sync failed', 'error');
+                if (!silent) {
+                    showToast('Sync failed', 'error');
+                }
             })
             .finally(() => {
-                if (syncBtn) {
+                if (!silent && syncBtn) {
                     syncBtn.classList.remove('syncing');
                     syncBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i><span>SYNC</span>';
                 }
@@ -2105,9 +2173,325 @@
     function onModalClose() {
         window.location.reload();
     }
+
+    // ===== Live Monitoring JS Integration =====
+    let liveMonitoringPollTimer = null;
+    let currentLiveState = 'STOPPED';
+
+    document.addEventListener('DOMContentLoaded', function () {
+        loadLiveInterfaces();
+        checkLiveMonitoringStatus();
+    });
+
+    function setLiveMonitoringState(state, customMessage) {
+        currentLiveState = state;
+        const badge = document.getElementById('live-status-badge');
+        const dot = document.getElementById('live-status-pulse');
+        const startBtn = document.getElementById('btn-start-monitoring');
+        const stopBtn = document.getElementById('btn-stop-monitoring');
+        const ifaceSelect = document.getElementById('live-interface-select');
+
+        if (!badge || !startBtn || !stopBtn) return;
+
+        dot.className = 'live-status-dot ' + state.toLowerCase();
+
+        switch (state) {
+            case 'STOPPED':
+                badge.className = 'badge bg-secondary px-3 py-2 fs-6';
+                badge.textContent = 'STOPPED';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                if (ifaceSelect) ifaceSelect.disabled = false;
+                if (liveMonitoringPollTimer) {
+                    clearInterval(liveMonitoringPollTimer);
+                    liveMonitoringPollTimer = null;
+                }
+                break;
+
+            case 'STARTING':
+                badge.className = 'badge bg-warning text-dark px-3 py-2 fs-6';
+                badge.textContent = 'STARTING...';
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                if (ifaceSelect) ifaceSelect.disabled = true;
+                break;
+
+            case 'MONITORING':
+                badge.className = 'badge bg-success px-3 py-2 fs-6';
+                badge.textContent = 'MONITORING';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                if (ifaceSelect) ifaceSelect.disabled = true;
+                if (!liveMonitoringPollTimer) {
+                    liveMonitoringPollTimer = setInterval(pollLiveMonitoringMetrics, 2500);
+                }
+                break;
+
+            case 'STOPPING':
+                badge.className = 'badge bg-warning text-dark px-3 py-2 fs-6';
+                badge.textContent = 'STOPPING...';
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                if (ifaceSelect) ifaceSelect.disabled = true;
+                if (liveMonitoringPollTimer) {
+                    clearInterval(liveMonitoringPollTimer);
+                    liveMonitoringPollTimer = null;
+                }
+                break;
+
+            case 'ERROR':
+                badge.className = 'badge bg-danger px-3 py-2 fs-6';
+                badge.textContent = customMessage ? 'ERROR: ' + customMessage : 'ERROR';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                if (ifaceSelect) ifaceSelect.disabled = false;
+                if (liveMonitoringPollTimer) {
+                    clearInterval(liveMonitoringPollTimer);
+                    liveMonitoringPollTimer = null;
+                }
+                break;
+        }
+    }
+
+    function loadLiveInterfaces() {
+        fetch('/api/live/interfaces')
+            .then(r => r.json())
+            .then(data => {
+                const select = document.getElementById('live-interface-select');
+                if (!select) return;
+                select.innerHTML = '';
+
+                if (data.success && data.interfaces && data.interfaces.length > 0) {
+                    let hasSelected = false;
+                    data.interfaces.forEach(iface => {
+                        const opt = document.createElement('option');
+                        let ifaceName = '';
+                        let ifaceDesc = '';
+                        let ifaceIp = '';
+                        let isDefault = false;
+                        let isDemo = false;
+
+                        if (typeof iface === 'string') {
+                            ifaceName = iface;
+                        } else if (typeof iface === 'object' && iface !== null) {
+                            ifaceName = iface.name || iface.description || 'Unknown Interface';
+                            ifaceDesc = (iface.description && iface.description !== ifaceName) ? iface.description : '';
+                            ifaceIp = iface.ip || '';
+                            isDefault = Boolean(iface.is_default);
+                            // Mark demo/test adapters clearly so users don't confuse them with real capture
+                            isDemo = (ifaceName === 'SIMULATED_TRAFFIC' ||
+                                      (iface.type || '').toLowerCase().includes('simul') ||
+                                      (iface.type || '').toLowerCase().includes('demo'));
+                        }
+
+                        opt.value = ifaceName;
+
+                        let displayLabel;
+                        if (isDemo) {
+                            // Make the demo option unambiguous
+                            displayLabel = `[DEMO] ${ifaceDesc || ifaceName} — no real packets`;
+                        } else {
+                            displayLabel = ifaceDesc ? `${ifaceName} (${ifaceDesc})` : ifaceName;
+                            if (ifaceIp) {
+                                displayLabel += ` [${ifaceIp}]`;
+                            }
+                        }
+                        opt.textContent = displayLabel;
+
+                        if (isDefault || (data.default_interface && (ifaceName === data.default_interface || ifaceDesc === data.default_interface))) {
+                            opt.selected = true;
+                            hasSelected = true;
+                        }
+                        select.appendChild(opt);
+                    });
+
+                    if (!hasSelected && select.options.length > 0) {
+                        select.options[0].selected = true;
+                    }
+                } else {
+                    const opt = document.createElement('option');
+                    opt.value = data.default_interface || 'DEFAULT';
+                    opt.textContent = data.default_interface || 'Default Interface';
+                    select.appendChild(opt);
+                }
+            })
+            .catch(err => {
+                console.error('Failed to load network interfaces:', err);
+            });
+    }
+
+    function checkLiveMonitoringStatus() {
+        fetch('/api/live/status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    if (data.is_running) {
+                        setLiveMonitoringState('MONITORING');
+                    } else if (currentLiveState !== 'STARTING' && currentLiveState !== 'STOPPING') {
+                        setLiveMonitoringState('STOPPED');
+                    }
+                    if (data.statistics) {
+                        updateLiveMetricUI(data.statistics);
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('Status check error:', err);
+            });
+    }
+
+    function pollLiveMonitoringMetrics() {
+        fetch('/api/live/status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && data.statistics) {
+                    updateLiveMetricUI(data.statistics);
+                }
+
+                // If capture was running but has now stopped due to an error,
+                // transition to ERROR state and show the error — never silently STOPPED.
+                if (data.success && !data.is_running && currentLiveState === 'MONITORING') {
+                    if (data.capture_error) {
+                        // Real capture crashed — show error, do NOT show STOPPED silently
+                        const shortErr = data.capture_error.split('\n')[0]; // first line only
+                        showToast('⚠️ Live capture error: ' + shortErr, 'error');
+                        setLiveMonitoringState('ERROR', shortErr.substring(0, 60));
+                    } else {
+                        // Clean stop (user clicked STOP or count/timeout reached)
+                        setLiveMonitoringState('STOPPED');
+                    }
+                }
+            })
+            .catch(err => console.error('Poll live metrics error:', err));
+
+        // Sync dashboard cards, graphs, threat feed & hostile origins silently
+        refreshDashboard(true);
+    }
+
+    function updateLiveMetricUI(stats) {
+        const pkts = document.getElementById('live-packets-captured');
+        const flows = document.getElementById('live-flows-processed');
+        const threats = document.getElementById('live-threats-detected');
+        const benign = document.getElementById('live-benign-traffic');
+        const lastThreat = document.getElementById('live-last-threat');
+        const lastUpdate = document.getElementById('live-last-update');
+
+        if (pkts) pkts.textContent = (stats.packets_captured || stats.total_packets || 0).toLocaleString();
+        if (flows) flows.textContent = (stats.flows_processed || 0).toLocaleString();
+        if (threats) threats.textContent = (stats.threats_detected || 0).toLocaleString();
+        if (benign) benign.textContent = (stats.benign_count || 0).toLocaleString();
+        if (lastThreat) lastThreat.textContent = stats.last_threat || 'None';
+        if (lastUpdate && stats.last_update) {
+            const d = new Date(stats.last_update);
+            lastUpdate.textContent = d.toLocaleTimeString();
+        }
+    }
+
+    function startLiveMonitoring() {
+        const select = document.getElementById('live-interface-select');
+        const selectedIface = select ? select.value : '';
+
+        setLiveMonitoringState('STARTING');
+
+        // Reset CSV dataset selection to switch to live traffic mode
+        fetch('/api/select-dataset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: '' })
+        })
+        .then(() => {
+            return fetch('/api/live/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ interface: selectedIface, filter: 'ip or ip6' })
+            });
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Live network monitoring started.', 'success');
+                setLiveMonitoringState('MONITORING');
+                pollLiveMonitoringMetrics();
+            } else {
+                showToast(data.error || 'Failed to start live monitoring', 'error');
+                setLiveMonitoringState('ERROR', data.error);
+            }
+        })
+        .catch(err => {
+            console.error('Start monitoring error:', err);
+            showToast('Error starting live monitoring: ' + err.message, 'error');
+            setLiveMonitoringState('ERROR', 'Connection failure');
+        });
+    }
+
+    function stopLiveMonitoring() {
+        setLiveMonitoringState('STOPPING');
+
+        fetch('/api/live/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Live network monitoring stopped.', 'success');
+                setLiveMonitoringState('STOPPED');
+            } else {
+                showToast(data.error || 'Failed to stop live monitoring', 'error');
+                setLiveMonitoringState('MONITORING');
+            }
+        })
+        .catch(err => {
+            console.error('Stop monitoring error:', err);
+            showToast('Error stopping live monitoring', 'error');
+            setLiveMonitoringState('MONITORING');
+        });
+    }
 </script>
 
 <style>
+    .live-status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    .live-status-dot.stopped { background-color: #6c757d; }
+    .live-status-dot.starting, .live-status-dot.stopping {
+        background-color: #ffc107;
+        box-shadow: 0 0 10px #ffc107;
+        animation: blink 1s infinite;
+    }
+    .live-status-dot.monitoring {
+        background-color: #00d26a;
+        box-shadow: 0 0 10px #00d26a;
+        animation: blink 1.5s infinite;
+    }
+    .live-status-dot.error { background-color: #ff4757; }
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+    .cyber-btn-start {
+        background: linear-gradient(135deg, #00b09b, #96c93d);
+        border: none;
+        color: #fff;
+        font-weight: 600;
+    }
+    .cyber-btn-start:hover:not(:disabled) {
+        opacity: 0.9;
+        color: #fff;
+    }
+    .cyber-btn-stop {
+        background: linear-gradient(135deg, #ff416c, #ff4b2b);
+        border: none;
+        color: #fff;
+        font-weight: 600;
+    }
+    .cyber-btn-stop:hover:not(:disabled) {
+        opacity: 0.9;
+        color: #fff;
+    }
     .cyber-btn-refresh.syncing {
         opacity: 0.7;
         pointer-events: none;

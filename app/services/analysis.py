@@ -375,6 +375,10 @@ class CSVAnalysisService:
         with status_lock:
             return ANALYSIS_STATUS.get(batch_id)
 
+    def get_analysis_status(self, batch_id: str) -> Optional[Dict[str, Any]]:
+        """Alias for get_status for backward compatibility with test harnesses."""
+        return self.get_status(batch_id)
+
     def _update_status(self, batch_id: str, progress: int, message: str, status: str = 'processing', results: Optional[Dict] = None):
         """Thread-safe update to status dictionary."""
         with status_lock:
@@ -399,6 +403,8 @@ class CSVAnalysisService:
             try:
                 # Read dataframe supporting comments (starts with # in sample)
                 df = pd.read_csv(file_path, comment='#')
+                if use_sample and len(df) > 100:
+                    df = df.head(100)
                 total_rows = len(df)
             finally:
                 # Disable cleanup: uploaded files are retained to support dropdown selection
@@ -479,28 +485,28 @@ class CSVAnalysisService:
                     self._update_status(batch_id, pct, f"Classifying network flow {index + 1} of {total_rows}...")
                 
                 # Fetch row fields dynamically based on mapping
-                src_ip = str(row.get(src_ip_col, f"192.168.1.{(index % 100) + 1}")) if src_ip_col in df.columns else f"192.168.1.{(index % 100) + 1}"
-                dst_ip = str(row.get(dst_ip_col, f"10.0.0.{(index % 50) + 1}")) if dst_ip_col in df.columns else f"10.0.0.{(index % 50) + 1}"
-                
+                src_ip = str(row.get(src_ip_col, '0.0.0.0')) if src_ip_col in df.columns else '0.0.0.0'
+                dst_ip = str(row.get(dst_ip_col, '0.0.0.0')) if dst_ip_col in df.columns else '0.0.0.0'
+
                 src_port_col = col_map.get('src_port')
-                src_port = safe_int(row.get(src_port_col) if src_port_col and src_port_col in df.columns else None, random.randint(1024, 65535))
-                
-                dst_port = safe_int(row.get(dst_port_col) if dst_port_col in df.columns else None, 80 if index % 2 == 0 else 443)
-                
+                src_port = safe_int(row.get(src_port_col) if src_port_col and src_port_col in df.columns else None, 0)
+
+                dst_port = safe_int(row.get(dst_port_col) if dst_port_col in df.columns else None, 0)
+
                 proto_col = col_map.get('protocol')
                 protocol = str(row.get(proto_col)).upper() if proto_col and proto_col in df.columns else 'TCP'
-                
+
                 bytes_s_col = col_map.get('bytes_sent')
-                bytes_sent = safe_int(row.get(bytes_s_col) if bytes_s_col else None, random.randint(100, 2000))
-                
+                bytes_sent = safe_int(row.get(bytes_s_col) if bytes_s_col else None, 0)
+
                 bytes_r_col = col_map.get('bytes_recv')
-                bytes_recv = safe_int(row.get(bytes_r_col) if bytes_r_col else None, random.randint(100, 2000))
-                
+                bytes_recv = safe_int(row.get(bytes_r_col) if bytes_r_col else None, 0)
+
                 pkts_s_col = col_map.get('packets_sent')
-                packets_sent = safe_int(row.get(pkts_s_col) if pkts_s_col else None, random.randint(1, 10))
-                
+                packets_sent = safe_int(row.get(pkts_s_col) if pkts_s_col else None, 0)
+
                 pkts_r_col = col_map.get('packets_recv')
-                packets_recv = safe_int(row.get(pkts_r_col) if pkts_r_col else None, random.randint(1, 10))
+                packets_recv = safe_int(row.get(pkts_r_col) if pkts_r_col else None, 0)
                 
                 dur_col = col_map.get('duration')
                 duration = safe_float(row.get(dur_col) if dur_col else None, 1.0)
@@ -857,7 +863,7 @@ class CSVAnalysisService:
 
                     if detected_category:  # Pure Heuristic fallback when ML is missing or unconfident
                         is_threat = True
-                        confidence = round(random.uniform(0.85, 0.96), 2)
+                        confidence = 0.80  # Fixed heuristic confidence — not fabricated
                         attack_type = detected_category
                         severity = rule_severity
                         description = f"Heuristic signature rule fallback: {rule_desc}"
@@ -865,7 +871,7 @@ class CSVAnalysisService:
 
                     elif csv_lbl and csv_lbl not in ['BENIGN', 'NORMAL', '0']:
                         is_threat = True
-                        confidence = ml_confidence if (has_ml_models and ml_confidence > 0.2) else round(random.uniform(0.85, 0.96), 2)
+                        confidence = ml_confidence if (has_ml_models and ml_confidence > 0.2) else 0.80
                         attack_type = csv_lbl.replace('_', ' ').title()
                         severity = 'critical' if 'DDOS' in csv_lbl or 'EXFIL' in csv_lbl else 'high'
                         description = f"Fallback rule matched dataset annotation ({attack_type})"
@@ -945,16 +951,25 @@ class CSVAnalysisService:
                 db.session.bulk_insert_mappings(NetworkFlow, flows_to_insert)
                 if alerts_to_insert:
                     db.session.bulk_insert_mappings(Alert, alerts_to_insert)
-                
-                # Write running metrics
+
+                # Write running metrics — use real system values when psutil available
                 processing_time = time.time() - start_time
+                try:
+                    import psutil
+                    _cpu = round(psutil.cpu_percent(interval=0.1), 1)
+                    _mem = round(psutil.virtual_memory().percent, 1)
+                    _dsk = round(psutil.disk_usage('/').percent, 1)
+                except Exception:
+                    _cpu = None
+                    _mem = None
+                    _dsk = None
                 metric = SystemMetrics(
                     flows_processed=total_rows,
                     alerts_generated=threats_count,
                     processing_time_ms=processing_time * 1000,
-                    cpu_usage=round(random.uniform(5.0, 15.0), 1),
-                    memory_usage=round(random.uniform(30.0, 50.0), 1),
-                    disk_usage=round(random.uniform(10.0, 20.0), 1),
+                    cpu_usage=_cpu,
+                    memory_usage=_mem,
+                    disk_usage=_dsk,
                     model_inference_time_ms=(processing_time / total_rows) * 1000 if total_rows > 0 else 0
                 )
                 db.session.add(metric)

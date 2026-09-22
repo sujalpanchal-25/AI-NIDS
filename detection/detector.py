@@ -43,15 +43,28 @@ class DetectionResult:
     shap_explanation: Optional[Dict] = None
     metadata: Dict = field(default_factory=dict)
     
-    def to_dict(self) -> Dict:
-        """Convert to dictionary."""
+    def to_normalized_dict(self) -> Dict:
+        """
+        Convert to a normalized prediction dictionary matching unified API specs:
+        - prediction: 1 (Attack) or 0 (Normal)
+        - attack_type: string classification
+        - confidence: float probability (0.0 to 1.0)
+        - severity: threat level string ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO')
+        - risk_score: calculated threat score (0.0 to 100.0)
+        """
+        sev_name = self.severity.name if hasattr(self.severity, 'name') else str(self.severity).upper()
+        conf_float = round(float(self.confidence), 4)
+        risk_float = round(conf_float * 100.0, 2)
+
         return {
+            'prediction': 1 if self.is_attack else 0,
             'is_attack': self.is_attack,
             'attack_type': self.attack_type,
-            'confidence': self.confidence,
-            'severity': self.severity.name,
+            'confidence': conf_float,
+            'severity': sev_name,
+            'risk_score': risk_float,
             'model_used': self.model_used,
-            'timestamp': self.timestamp.isoformat(),
+            'timestamp': self.timestamp.isoformat() if isinstance(self.timestamp, datetime) else str(self.timestamp),
             'source_ip': self.source_ip,
             'destination_ip': self.destination_ip,
             'source_port': self.source_port,
@@ -60,6 +73,10 @@ class DetectionResult:
             'shap_explanation': self.shap_explanation,
             'metadata': self.metadata
         }
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary."""
+        return self.to_normalized_dict()
 
 
 class DetectionEngine:
@@ -121,7 +138,8 @@ class DetectionEngine:
             explainer: SHAP explainer instance
             config: Configuration dictionary
         """
-        self.preprocessor = preprocessor
+        from ml.preprocessing import DataPreprocessor
+        self.preprocessor = preprocessor or DataPreprocessor()
         self.ensemble_model = ensemble_model
         self.xgboost_model = xgboost_model
         self.autoencoder_model = autoencoder_model
@@ -283,24 +301,27 @@ class DetectionEngine:
     ) -> Tuple[np.ndarray, Optional[List[Dict]]]:
         """Prepare input features for detection."""
         metadata = None
+        is_dict_input = False
         
         if isinstance(features, dict):
             # Single flow as dictionary
             metadata = [self._extract_metadata(features)]
             X = self._dict_to_array([features])
+            is_dict_input = True
             
         elif isinstance(features, list) and isinstance(features[0], dict):
             # List of flow dictionaries
             metadata = [self._extract_metadata(f) for f in features]
             X = self._dict_to_array(features)
+            is_dict_input = True
             
         elif isinstance(features, np.ndarray):
             X = features if features.ndim == 2 else features.reshape(1, -1)
         else:
             raise ValueError(f"Unsupported input type: {type(features)}")
         
-        # Preprocess if we have a preprocessor
-        if self.preprocessor is not None:
+        # Preprocess if features are raw numpy array (not pre-converted via dict_to_array)
+        if self.preprocessor is not None and not is_dict_input:
             X = self.preprocessor.transform(X)
         
         return X, metadata
@@ -308,21 +329,30 @@ class DetectionEngine:
     def _extract_metadata(self, flow: Dict) -> Dict:
         """Extract metadata from flow dictionary."""
         return {
-            'source_ip': flow.get('Source IP', flow.get('src_ip')),
-            'destination_ip': flow.get('Destination IP', flow.get('dst_ip')),
-            'source_port': flow.get('Source Port', flow.get('src_port')),
-            'destination_port': flow.get('Destination Port', flow.get('dst_port')),
+            'source_ip': flow.get('Source IP', flow.get('src_ip', flow.get('source_ip'))),
+            'destination_ip': flow.get('Destination IP', flow.get('dst_ip', flow.get('destination_ip'))),
+            'source_port': flow.get('Source Port', flow.get('src_port', flow.get('source_port'))),
+            'destination_port': flow.get('Destination Port', flow.get('dst_port', flow.get('destination_port'))),
             'protocol': flow.get('Protocol', flow.get('protocol'))
         }
     
     def _dict_to_array(self, flows: List[Dict]) -> np.ndarray:
-        """Convert list of flow dictionaries to numpy array."""
+        """Convert list of flow dictionaries to scaled numpy array using live flow conversion."""
+        if not flows:
+            return np.zeros((0, 72), dtype=np.float32)
+
+        if self.preprocessor and hasattr(self.preprocessor, 'extract_features_from_live_flow'):
+            arrays = []
+            for flow in flows:
+                vec = self.preprocessor.extract_features_from_live_flow(flow)
+                arrays.append(vec[0])
+            return np.array(arrays, dtype=np.float32)
+
+        # Fallback if preprocessor does not have live conversion method
         if self.preprocessor and self.preprocessor.feature_columns:
             feature_cols = self.preprocessor.feature_columns
         else:
-            # Default feature columns
             feature_cols = list(flows[0].keys())
-            # Remove non-numeric columns
             feature_cols = [c for c in feature_cols if c not in 
                           ['Source IP', 'Destination IP', 'Timestamp', 'Label', 'src_ip', 'dst_ip']]
         
@@ -756,6 +786,11 @@ def create_detection_engine(
     
     # Look for model files
     preprocessor_path = os.path.join(model_dir, 'preprocessor.pkl')
+    if not os.path.exists(preprocessor_path):
+        alt_prep = os.path.join(model_dir, 'feature_columns.pkl')
+        if os.path.exists(alt_prep):
+            preprocessor_path = alt_prep
+
     xgboost_path = os.path.join(model_dir, 'xgboost_model.pkl')
     autoencoder_path = os.path.join(model_dir, 'autoencoder_model.pt')
     lstm_path = os.path.join(model_dir, 'lstm_model.pt')
@@ -771,6 +806,6 @@ def create_detection_engine(
             ensemble_path=ensemble_path if os.path.exists(ensemble_path) else None
         )
     else:
-        logger.warning(f"Preprocessor not found at {preprocessor_path}. Engine initialized without models.")
+        logger.warning(f"Preprocessor not found at {preprocessor_path}. Engine initialized with default preprocessor.")
     
     return engine
