@@ -4,18 +4,245 @@ REST API Routes
 API endpoints for external integrations and AJAX requests.
 """
 
-from flask import Blueprint, jsonify, request, current_app, render_template
+from flask import Blueprint, jsonify, request, current_app, render_template, g
 from flask_login import login_required, current_user
 from functools import wraps
 from datetime import datetime, timedelta
 import json
 
 from app import db
-from app.models.database import Alert, NetworkFlow, APIKey
+from app.models.database import User, Alert, NetworkFlow, APIKey
 from detection.detector import DetectionEngine as IntrusionDetector
 from ml.inference.predictor import ModelPredictor
+from utils.jwt_auth import (
+    generate_token_pair, 
+    generate_access_token, 
+    jwt_required, 
+    jwt_refresh_required, 
+    decode_jwt_token
+)
 
 api_bp = Blueprint('api', __name__)
+
+
+# ==================== JWT Authentication Endpoints ====================
+
+@api_bp.route('/auth/register', methods=['POST'])
+def api_register():
+    """
+    Register a new user via API.
+    Expects JSON: { "username": "...", "email": "...", "password": "..." }
+    """
+    data = request.get_json(silent=True) or {}
+    username = data.get('username', '').strip()
+    email = data.get('email', '').strip().lower()
+    password = data.get('password', '')
+
+    if not username or not email or not password:
+        return jsonify({
+            'status': 'error',
+            'message': 'username, email, and password are required fields.'
+        }), 400
+
+    if len(username) < 3 or len(username) > 64:
+        return jsonify({'status': 'error', 'message': 'Username must be between 3 and 64 characters.'}), 400
+
+    if len(password) < 8:
+        return jsonify({'status': 'error', 'message': 'Password must be at least 8 characters long.'}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({'status': 'error', 'message': 'Username is already taken.'}), 409
+
+    if User.query.filter_by(email=email).first():
+        return jsonify({'status': 'error', 'message': 'Email address is already registered.'}), 409
+
+    user = User(
+        username=username,
+        email=email,
+        role=data.get('role', 'analyst') if data.get('role') in ['analyst', 'viewer'] else 'analyst',
+        is_active=False,
+        is_verified=False
+    )
+    user.set_password(password)
+    otp = user.generate_otp()
+
+    db.session.add(user)
+    db.session.commit()
+
+    # Send Brevo OTP verification email
+    try:
+        from utils.email_service import send_verification_otp_email_async
+        send_verification_otp_email_async(
+            user_email=user.email,
+            username=user.username,
+            otp_code=otp
+        )
+    except Exception as e_mail:
+        current_app.logger.warning(f"Failed to dispatch OTP email: {e_mail}")
+
+    return jsonify({
+        'status': 'success',
+        'message': f'User registered successfully. A 6-digit verification code has been sent to {user.email}.',
+        'requires_verification': True,
+        'email': user.email
+    }), 201
+
+
+@api_bp.route('/auth/login', methods=['POST'])
+def api_login():
+    """
+    User login via API.
+    Expects JSON: { "username": "...", "password": "..." }
+    Returns: access_token, refresh_token, token_type, expires_in, user
+    """
+    data = request.get_json(silent=True) or {}
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+
+    if not username or not password:
+        return jsonify({'status': 'error', 'message': 'Username and password are required.'}), 400
+
+    user = User.query.filter_by(username=username).first()
+    if not user or not user.check_password(password):
+        return jsonify({'status': 'error', 'message': 'Invalid username or password.'}), 401
+
+    if not user.is_verified:
+        otp = user.generate_otp()
+        db.session.commit()
+        try:
+            from utils.email_service import send_verification_otp_email_async
+            send_verification_otp_email_async(
+                user_email=user.email,
+                username=user.username,
+                otp_code=otp
+            )
+        except Exception:
+            pass
+        return jsonify({
+            'status': 'error',
+            'error': 'unverified_email',
+            'message': 'Please verify your email before logging in. A new 6-digit code has been sent.',
+            'email': user.email
+        }), 403
+
+    if not user.is_active:
+        return jsonify({'status': 'error', 'message': 'Account is deactivated.'}), 403
+
+    user.last_login = datetime.utcnow()
+    db.session.commit()
+
+    tokens = generate_token_pair(user)
+    response = jsonify({
+        'status': 'success',
+        'message': f'Welcome back, {user.username}!',
+        'access_token': tokens['access_token'],
+        'refresh_token': tokens['refresh_token'],
+        'token_type': tokens['token_type'],
+        'expires_in': tokens['expires_in'],
+        'user': tokens['user']
+    })
+
+    # Set secure HTTPOnly cookies
+    response.set_cookie('access_token', tokens['access_token'], max_age=15 * 60, httponly=True, samesite='Lax')
+    response.set_cookie('refresh_token', tokens['refresh_token'], max_age=7 * 24 * 3600, httponly=True, samesite='Lax')
+    return response, 200
+
+
+@api_bp.route('/auth/verify-otp', methods=['POST'])
+def api_verify_otp():
+    """
+    Verify 6-digit OTP via API and return access_token & refresh_token.
+    Expects JSON: { "email": "...", "otp": "..." }
+    """
+    data = request.get_json(silent=True) or {}
+    email = data.get('email', '').strip().lower()
+    otp_code = data.get('otp', '').strip()
+
+    if not email or not otp_code:
+        return jsonify({'status': 'error', 'message': 'Email and 6-digit OTP code are required.'}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({'status': 'error', 'message': 'No account found with this email.'}), 404
+
+    success, message = user.verify_otp(otp_code)
+    if not success:
+        return jsonify({'status': 'error', 'message': message}), 400
+
+    user.last_login = datetime.utcnow()
+    db.session.commit()
+
+    tokens = generate_token_pair(user)
+    
+    # Send confirmation welcome email
+    try:
+        from utils.email_service import send_registration_confirmation_async
+        send_registration_confirmation_async(user.email, user.username, user.role)
+    except Exception:
+        pass
+
+    response = jsonify({
+        'status': 'success',
+        'message': 'Email verified successfully!',
+        'access_token': tokens['access_token'],
+        'refresh_token': tokens['refresh_token'],
+        'token_type': tokens['token_type'],
+        'expires_in': tokens['expires_in'],
+        'user': tokens['user']
+    })
+    response.set_cookie('access_token', tokens['access_token'], max_age=15 * 60, httponly=True, samesite='Lax')
+    response.set_cookie('refresh_token', tokens['refresh_token'], max_age=7 * 24 * 3600, httponly=True, samesite='Lax')
+    return response, 200
+
+
+@api_bp.route('/auth/refresh', methods=['POST'])
+@jwt_refresh_required
+def api_refresh_token():
+    """
+    Exchange a valid refresh_token for a fresh access_token.
+    """
+    user = g.jwt_user
+    new_access_token = generate_access_token(user, expires_in_minutes=15)
+    
+    response = jsonify({
+        'status': 'success',
+        'access_token': new_access_token,
+        'token_type': 'Bearer',
+        'expires_in': 15 * 60
+    })
+    response.set_cookie('access_token', new_access_token, max_age=15 * 60, httponly=True, samesite='Lax')
+    return response, 200
+
+
+@api_bp.route('/auth/me', methods=['GET'])
+@jwt_required()
+def api_me():
+    """
+    Get current user profile (Protected by JWT access_token).
+    """
+    user = g.jwt_user
+    return jsonify({
+        'status': 'success',
+        'user': user.to_dict()
+    }), 200
+
+
+@api_bp.route('/auth/logout', methods=['POST'])
+def api_logout():
+    """
+    Logout and clear JWT cookies.
+    """
+    response = jsonify({
+        'status': 'success',
+        'message': 'Successfully logged out.'
+    })
+    response.delete_cookie('access_token')
+    response.delete_cookie('refresh_token')
+    return response, 200
+
+
+# ==================== Legacy API Key Decorator ====================
+
 
 
 def api_key_required(f):
