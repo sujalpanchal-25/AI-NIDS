@@ -178,120 +178,70 @@ def mark_notifications_read():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-def get_dashboard_stats():
-    """Calculate dashboard statistics."""
+def get_session_start_time():
+    """Get start timestamp for current active session / live traffic monitoring."""
+    start_str = session.get('session_start_time')
+    if start_str:
+        try:
+            return datetime.fromisoformat(start_str)
+        except Exception:
+            pass
     now = datetime.utcnow()
-    # Use last 24 hours for current stats (not just today)
-    period_start = now - timedelta(hours=24)
-    yesterday_start = period_start - timedelta(hours=24)
-    
+    session['session_start_time'] = now.isoformat()
+    return now
+
+
+def get_dashboard_stats():
+    """Calculate dashboard statistics strictly scoped to active dataset batch or fresh live session."""
+    now = datetime.utcnow()
     batch_id = session.get('selected_dataset')
+    session_start = get_session_start_time()
     
-    # Total flows in last 24 hours
-    q_flows = NetworkFlow.query
     if batch_id:
-        q_flows = q_flows.filter(NetworkFlow.batch_id == batch_id)
+        # Dataset Mode: strictly count records belonging to this batch
+        total_flows = NetworkFlow.query.filter_by(batch_id=batch_id).count()
+        total_alerts = Alert.query.filter_by(batch_id=batch_id).count()
+        critical_alerts = Alert.query.filter_by(batch_id=batch_id, severity='critical').count()
         
-    total_flows = q_flows.filter(
-        NetworkFlow.timestamp >= period_start
-    ).count()
-    
-    # If no recent data, get total flows from database
-    if total_flows == 0:
-        if batch_id:
-            total_flows = NetworkFlow.query.filter_by(batch_id=batch_id).count()
-        else:
-            total_flows = NetworkFlow.query.count()
-    
-    # Previous 24 hour period flows for comparison
-    q_yesterday_flows = NetworkFlow.query
-    if batch_id:
-        q_yesterday_flows = q_yesterday_flows.filter(NetworkFlow.batch_id == batch_id)
-    yesterday_flows = q_yesterday_flows.filter(
-        NetworkFlow.timestamp >= yesterday_start,
-        NetworkFlow.timestamp < period_start
-    ).count()
-    
-    # Calculate flow trend
-    if yesterday_flows > 0:
-        flow_trend = round(((total_flows - yesterday_flows) / yesterday_flows) * 100, 1)
-    else:
-        flow_trend = 12.0 if total_flows > 0 else 0
-    
-    # Total alerts in last 24 hours
-    q_alerts = Alert.query
-    if batch_id:
-        q_alerts = q_alerts.filter(Alert.batch_id == batch_id)
+        blocked_ips = db.session.query(
+            func.count(func.distinct(Alert.source_ip))
+        ).filter(
+            Alert.batch_id == batch_id,
+            Alert.severity.in_(['critical', 'high'])
+        ).scalar() or 0
         
-    total_alerts = q_alerts.filter(
-        Alert.timestamp >= period_start
-    ).count()
-    
-    # If no recent alerts, get total from database
-    if total_alerts == 0:
-        if batch_id:
-            total_alerts = Alert.query.filter_by(batch_id=batch_id).count()
-        else:
-            total_alerts = Alert.query.count()
-    
-    # Previous period alerts
-    q_yesterday_alerts = Alert.query
-    if batch_id:
-        q_yesterday_alerts = q_yesterday_alerts.filter(Alert.batch_id == batch_id)
-    yesterday_alerts = q_yesterday_alerts.filter(
-        Alert.timestamp >= yesterday_start,
-        Alert.timestamp < period_start
-    ).count()
-    
-    # Calculate alert trend (negative is good - fewer alerts)
-    if yesterday_alerts > 0:
-        alert_trend = round(((total_alerts - yesterday_alerts) / yesterday_alerts) * 100, 1)
+        avg_confidence = db.session.query(
+            func.avg(Alert.confidence)
+        ).filter(Alert.batch_id == batch_id).scalar()
+        
+        detection_rate = round(min(avg_confidence * 100, 100), 1) if avg_confidence else 0.0
+        flows_per_second = round(total_flows / 60.0, 2) if total_flows > 0 else 0.0
+        flow_trend = 0.0
+        alert_trend = 0.0
     else:
-        alert_trend = -5.0 if total_alerts > 0 else 0
-    
-    # Critical alerts (all time if none in period)
-    q_critical = Alert.query
-    if batch_id:
-        q_critical = q_critical.filter(Alert.batch_id == batch_id)
-    critical_alerts = q_critical.filter(
-        Alert.timestamp >= period_start,
-        Alert.severity == 'critical'
-    ).count()
-    
-    if critical_alerts == 0:
-        if batch_id:
-            critical_alerts = Alert.query.filter_by(batch_id=batch_id, severity='critical').count()
-        else:
-            critical_alerts = Alert.query.filter(Alert.severity == 'critical').count()
-    
-    # Unique source IPs with alerts (blocked IPs)
-    q_blocked = db.session.query(
-        func.count(func.distinct(Alert.source_ip))
-    )
-    if batch_id:
-        q_blocked = q_blocked.filter(Alert.batch_id == batch_id)
-    blocked_ips = q_blocked.filter(
-        Alert.severity.in_(['critical', 'high'])
-    ).scalar() or 0
-    
-    # Calculate REAL detection rate from model confidence
-    q_confidence = db.session.query(
-        func.avg(Alert.confidence)
-    )
-    if batch_id:
-        q_confidence = q_confidence.filter(Alert.batch_id == batch_id)
-    avg_confidence = q_confidence.scalar()
-    
-    if avg_confidence:
-        detection_rate = round(min(avg_confidence * 100, 100), 1)
-    else:
-        detection_rate = 0.0  # Default to 0.0% for fresh start
-    
-    # Flows per second (estimate from total flows over period)
-    if total_flows > 0:
-        flows_per_second = round(total_flows / (24 * 3600), 2)
-    else:
-        flows_per_second = 0.0
+        # Live Traffic / Fresh Session Mode: only count records from this session onwards
+        q_flows = NetworkFlow.query.filter(NetworkFlow.timestamp >= session_start)
+        q_alerts = Alert.query.filter(Alert.timestamp >= session_start)
+        
+        total_flows = q_flows.count()
+        total_alerts = q_alerts.count()
+        critical_alerts = q_alerts.filter(Alert.severity == 'critical').count()
+        
+        blocked_ips = db.session.query(
+            func.count(func.distinct(Alert.source_ip))
+        ).filter(
+            Alert.timestamp >= session_start,
+            Alert.severity.in_(['critical', 'high'])
+        ).scalar() or 0
+        
+        avg_confidence = db.session.query(
+            func.avg(Alert.confidence)
+        ).filter(Alert.timestamp >= session_start).scalar()
+        
+        detection_rate = round(min(avg_confidence * 100, 100), 1) if avg_confidence else 0.0
+        flows_per_second = round(total_flows / max(1, (now - session_start).total_seconds()), 2) if total_flows > 0 else 0.0
+        flow_trend = 0.0
+        alert_trend = 0.0
     
     return {
         'total_flows': total_flows,
@@ -307,132 +257,80 @@ def get_dashboard_stats():
 
 
 def get_recent_alerts(limit=10):
-    """Get most recent alerts."""
+    """Get most recent alerts scoped to active dataset or session."""
     batch_id = session.get('selected_dataset')
-    query = Alert.query
     if batch_id:
-        query = query.filter(Alert.batch_id == batch_id)
-    return query.order_by(
-        Alert.timestamp.desc()
-    ).limit(limit).all()
+        return Alert.query.filter_by(batch_id=batch_id).order_by(Alert.timestamp.desc()).limit(limit).all()
+        
+    session_start = get_session_start_time()
+    return Alert.query.filter(Alert.timestamp >= session_start).order_by(Alert.timestamp.desc()).limit(limit).all()
 
 
 def get_traffic_timeline(hours=24):
     """Get traffic data for timeline chart."""
     now = datetime.utcnow()
-    start_time = now - timedelta(hours=hours)
-    
     batch_id = session.get('selected_dataset')
+    session_start = get_session_start_time()
     
-    # Check if we have recent data, if not use the latest data available
-    q_count = db.session.query(func.count(NetworkFlow.id))
-    if batch_id:
-        q_count = q_count.filter(NetworkFlow.batch_id == batch_id)
+    start_time = now - timedelta(hours=hours)
+    if not batch_id and session_start > start_time:
+        start_time = session_start
         
-    recent_count = q_count.filter(
-        NetworkFlow.timestamp >= start_time
-    ).scalar()
-    
-    # If no recent data, find the latest data and use that time range instead
-    if recent_count == 0:
-        q_latest = db.session.query(NetworkFlow)
-        if batch_id:
-            q_latest = q_latest.filter(NetworkFlow.batch_id == batch_id)
-        latest_flow = q_latest.order_by(
-            NetworkFlow.timestamp.desc()
-        ).first()
-        
-        if latest_flow:
-            now = latest_flow.timestamp
-            start_time = now - timedelta(hours=hours)
-    
-    # Generate time buckets
-    labels = []
-    flows = []
-    bytes_data = []
-    
-    # Determine bucket size based on time range
-    if hours <= 24:
-        bucket_hours = 1
-        format_str = '%H:00'
-    elif hours <= 48:
-        bucket_hours = 2
-        format_str = '%d %H:00'
-    else:
-        bucket_hours = 6
-        format_str = '%d %b %H:00'
-    
-    # Query actual data
     q_data = db.session.query(
-        func.strftime('%Y-%m-%d %H:00:00', NetworkFlow.timestamp).label('hour'),
+        func.strftime('%Y-%m-%d %H:%M:00', NetworkFlow.timestamp).label('minute'),
         func.count().label('count'),
         func.sum(NetworkFlow.total_bytes).label('bytes')
     )
     if batch_id:
         q_data = q_data.filter(NetworkFlow.batch_id == batch_id)
+    else:
+        q_data = q_data.filter(NetworkFlow.timestamp >= session_start)
         
-    flow_data = q_data.filter(
-        NetworkFlow.timestamp >= start_time
-    ).group_by('hour').all()
+    flow_data = q_data.group_by('minute').all()
+    flow_dict = {f.minute: {'count': f.count, 'bytes': f.bytes or 0} for f in flow_data}
     
-    # Convert to dict for easy lookup
-    flow_dict = {f.hour: {'count': f.count, 'bytes': f.bytes or 0} for f in flow_data}
+    labels = []
+    flows = []
+    bytes_data = []
     
-    # Fill in all hours
-    current = start_time.replace(minute=0, second=0, microsecond=0)
+    bucket_count = 10
+    step_seconds = max(60, int((now - start_time).total_seconds() / bucket_count))
+    current = start_time
     while current <= now:
-        hour_key = current.strftime('%Y-%m-%d %H:00:00')
-        labels.append(current.strftime(format_str))
-        
-        if hour_key in flow_dict:
-            flows.append(flow_dict[hour_key]['count'])
-            bytes_data.append(flow_dict[hour_key]['bytes'])
+        minute_key = current.strftime('%Y-%m-%d %H:%M:00')
+        labels.append(current.strftime('%H:%M'))
+        if minute_key in flow_dict:
+            flows.append(flow_dict[minute_key]['count'])
+            bytes_data.append(flow_dict[minute_key]['bytes'])
         else:
             flows.append(0)
             bytes_data.append(0)
-        
-        current += timedelta(hours=bucket_hours)
+        current += timedelta(seconds=step_seconds)
     
     return {
-        'labels': labels,
-        'flows': flows,
-        'bytes': bytes_data
+        'labels': labels if labels else ['00:00'],
+        'flows': flows if flows else [0],
+        'bytes': bytes_data if bytes_data else [0]
     }
 
 
 def get_attack_distribution():
     """Get attack type distribution."""
-    now = datetime.utcnow()
-    week_start = now - timedelta(days=7)
-    
     batch_id = session.get('selected_dataset')
+    session_start = get_session_start_time()
     
-    # Try recent data first
     q_dist = db.session.query(
         Alert.attack_type,
         func.count().label('count')
     )
     if batch_id:
         q_dist = q_dist.filter(Alert.batch_id == batch_id)
+    else:
+        q_dist = q_dist.filter(Alert.timestamp >= session_start)
         
-    distribution = q_dist.filter(
-        Alert.timestamp >= week_start
-    ).group_by(Alert.attack_type).order_by(
+    distribution = q_dist.group_by(Alert.attack_type).order_by(
         func.count().desc()
     ).limit(8).all()
-    
-    # If no recent data, get all data
-    if not distribution:
-        q_all = db.session.query(
-            Alert.attack_type,
-            func.count().label('count')
-        )
-        if batch_id:
-            q_all = q_all.filter(Alert.batch_id == batch_id)
-            
-        distribution = q_all.group_by(Alert.attack_type).order_by(
-            func.count().desc()
-        ).limit(8).all()
     
     if not distribution:
         return {'labels': [], 'values': []}
@@ -445,35 +343,20 @@ def get_attack_distribution():
 
 def get_severity_breakdown():
     """Get severity breakdown for chart."""
-    now = datetime.utcnow()
-    week_start = now - timedelta(days=7)
-    
     severity_order = ['critical', 'high', 'medium', 'low', 'info']
-    
     batch_id = session.get('selected_dataset')
+    session_start = get_session_start_time()
     
-    # Try recent data first
     q_sev = db.session.query(
         Alert.severity,
         func.count().label('count')
     )
     if batch_id:
         q_sev = q_sev.filter(Alert.batch_id == batch_id)
+    else:
+        q_sev = q_sev.filter(Alert.timestamp >= session_start)
         
-    breakdown = q_sev.filter(
-        Alert.timestamp >= week_start
-    ).group_by(Alert.severity).all()
-    
-    # If no recent data, get all data
-    if not breakdown:
-        q_all = db.session.query(
-            Alert.severity,
-            func.count().label('count')
-        )
-        if batch_id:
-            q_all = q_all.filter(Alert.batch_id == batch_id)
-        breakdown = q_all.group_by(Alert.severity).all()
-    
+    breakdown = q_sev.group_by(Alert.severity).all()
     severity_dict = {s.severity: s.count for s in breakdown}
     
     return {
@@ -484,38 +367,24 @@ def get_severity_breakdown():
 
 def get_top_source_ips(limit=5):
     """Get top source IPs by alert count."""
-    now = datetime.utcnow()
-    week_start = now - timedelta(days=7)
-    
     batch_id = session.get('selected_dataset')
+    session_start = get_session_start_time()
     
-    # Try recent data first
     q_ips = db.session.query(
         Alert.source_ip,
         func.count().label('count')
     )
     if batch_id:
         q_ips = q_ips.filter(Alert.batch_id == batch_id)
+    else:
+        q_ips = q_ips.filter(Alert.timestamp >= session_start)
         
-    top_ips = q_ips.filter(
-        Alert.timestamp >= week_start
-    ).group_by(Alert.source_ip).order_by(
+    top_ips = q_ips.group_by(Alert.source_ip).order_by(
         func.count().desc()
     ).limit(limit).all()
     
-    # If no recent data, get all data
-    if not top_ips:
-        q_all = db.session.query(
-            Alert.source_ip,
-            func.count().label('count')
-        )
-        if batch_id:
-            q_all = q_all.filter(Alert.batch_id == batch_id)
-        top_ips = q_all.group_by(Alert.source_ip).order_by(
-            func.count().desc()
-        ).limit(limit).all()
-    
     return [{'ip': ip.source_ip, 'count': ip.count} for ip in top_ips]
+
 
 
 @dashboard_bp.route('/showcase')
@@ -598,6 +467,8 @@ def upload_dataset():
                 
             app_obj = current_app._get_current_object()
             batch_id = analysis_service.start_analysis_async(sample_path, app=app_obj, use_sample=True)
+            session['selected_dataset'] = batch_id
+            session['selected_dataset_name'] = 'sample_traffic.csv'
             return jsonify({'success': True, 'batch_id': batch_id, 'message': 'Sample analysis started'})
 
         # Standard file upload validation
@@ -629,6 +500,8 @@ def upload_dataset():
         # Start analysis process
         app_obj = current_app._get_current_object()
         batch_id = analysis_service.start_analysis_async(file_path, app=app_obj, use_sample=False)
+        session['selected_dataset'] = batch_id
+        session['selected_dataset_name'] = filename
         return jsonify({
             'success': True,
             'batch_id': batch_id,
@@ -663,6 +536,7 @@ def select_dataset():
             # Clear selection if no filename is provided (switch to Live Traffic)
             session.pop('selected_dataset', None)
             session.pop('selected_dataset_name', None)
+            session['session_start_time'] = datetime.utcnow().isoformat()
             return jsonify({'success': True, 'message': 'Reset to live traffic view', 'analyzed': True})
         
         # Verify file exists
@@ -709,6 +583,45 @@ def select_dataset():
     except Exception as e:
         current_app.logger.error(f"Select dataset API failed: {str(e)}")
         return jsonify({'error': f"Failed to select dataset: {str(e)}"}), 500
+
+
+@dashboard_bp.route('/api/clear-data', methods=['POST'])
+@login_required
+@csrf.exempt
+def clear_dashboard_data():
+    """Clear all network flows, alerts, and reset active session to 0."""
+    try:
+        # 1. Delete flows and alerts from DB
+        num_alerts = Alert.query.delete()
+        num_flows = NetworkFlow.query.delete()
+        db.session.commit()
+
+        # 2. Reset session indicators
+        session.pop('selected_dataset', None)
+        session.pop('selected_dataset_name', None)
+        session['session_start_time'] = datetime.utcnow().isoformat()
+
+        # 3. Reset live capture stats if running
+        try:
+            from app.routes.live_routes import _capture_manager
+            if _capture_manager and hasattr(_capture_manager, 'capture') and _capture_manager.capture:
+                _capture_manager.capture.packets_captured = 0
+                _capture_manager.capture.flows_processed = 0
+                _capture_manager.capture.threats_detected = 0
+                _capture_manager.capture.benign_count = 0
+        except Exception:
+            pass
+
+        return jsonify({
+            'success': True,
+            'message': 'All dashboard metrics and threat alerts have been cleared. Reset to 0.',
+            'total_flows': 0,
+            'total_alerts': 0
+        })
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Failed to clear dashboard data: {str(e)}")
+        return jsonify({'success': False, 'error': f"Failed to clear data: {str(e)}"}), 500
 
 
 @dashboard_bp.route('/api/export-report/<batch_id>/pdf', methods=['GET'])

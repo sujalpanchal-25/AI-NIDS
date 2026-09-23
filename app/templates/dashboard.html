@@ -40,6 +40,10 @@
                 <i class="bi bi-arrow-clockwise"></i>
                 <span>SYNC</span>
             </button>
+            <button class="btn cyber-btn-clear" onclick="openClearDataModal()" title="Reset all dashboard data to 0">
+                <i class="bi bi-trash3"></i>
+                <span>CLEAR DATA</span>
+            </button>
         </div>
     </div>
 
@@ -507,6 +511,28 @@
     .cyber-btn-refresh:hover {
         background: rgba(0, 242, 254, 0.1);
         border-color: #00f2fe;
+    }
+
+    .cyber-btn-clear {
+        background: rgba(255, 71, 87, 0.1);
+        border: 1px solid rgba(255, 71, 87, 0.4);
+        color: #ff4757;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .cyber-btn-clear:hover {
+        background: rgba(255, 71, 87, 0.25);
+        border-color: #ff4757;
+        box-shadow: 0 0 12px rgba(255, 71, 87, 0.5);
+        color: #ffffff;
     }
 
     .stat-card.cyber-card {
@@ -1507,6 +1533,38 @@
     </div>
 </div>
 
+<!-- Clear Data Confirmation Modal -->
+<div class="modal fade cyber-modal" id="clearDataConfirmModal" tabindex="-1" aria-labelledby="clearDataModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="background: rgba(18, 18, 26, 0.98); border: 1px solid rgba(255, 71, 87, 0.4); box-shadow: 0 0 25px rgba(255, 71, 87, 0.25);">
+            <div class="modal-header border-bottom border-danger border-opacity-25 p-3">
+                <h5 class="modal-title d-flex align-items-center gap-2 m-0 text-danger" id="clearDataModalLabel" style="font-family: 'Orbitron', sans-serif; font-size: 0.95rem; letter-spacing: 1px;">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <span>CONFIRM DATA RESET</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body py-4 text-center px-4">
+                <div class="mb-3">
+                    <i class="bi bi-shield-x text-danger" style="font-size: 3rem; filter: drop-shadow(0 0 10px rgba(255, 71, 87, 0.6));"></i>
+                </div>
+                <h5 class="fw-bold text-light mb-2" style="font-family: 'Orbitron', sans-serif; font-size: 1.1rem;">Clear All Dashboard Data?</h5>
+                <p class="text-secondary small mb-0" style="line-height: 1.6;">
+                    This action will reset active dataset selections, clear threat alerts and network traffic history, and return all metrics and live counters back to <strong class="text-danger font-monospace">0</strong>.
+                </p>
+            </div>
+            <div class="modal-footer border-top border-secondary border-opacity-25 p-3 d-flex justify-content-between">
+                <button type="button" class="btn btn-outline-secondary px-4 py-2" data-bs-dismiss="modal" style="font-family: 'Orbitron', sans-serif; font-size: 0.8rem; letter-spacing: 1px;">
+                    <i class="bi bi-x-lg me-1"></i> CANCEL
+                </button>
+                <button type="button" class="btn btn-danger px-4 py-2 fw-bold" id="btn-confirm-clear-data" onclick="executeClearData()" style="font-family: 'Orbitron', sans-serif; font-size: 0.8rem; letter-spacing: 1px; box-shadow: 0 0 15px rgba(255, 71, 87, 0.4);">
+                    <i class="bi bi-trash3-fill me-1"></i> YES, CLEAR DATA
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -2172,6 +2230,62 @@
     // Modal Close handler
     function onModalClose() {
         window.location.reload();
+    }
+
+    // ===== Clear / Reset Dashboard Data Modal & Action =====
+    let clearConfirmModalInstance = null;
+
+    function openClearDataModal() {
+        if (!clearConfirmModalInstance) {
+            clearConfirmModalInstance = new bootstrap.Modal(document.getElementById('clearDataConfirmModal'));
+        }
+        const confirmBtn = document.getElementById('btn-confirm-clear-data');
+        if (confirmBtn) {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="bi bi-trash3-fill me-1"></i> YES, CLEAR DATA';
+        }
+        clearConfirmModalInstance.show();
+    }
+
+    function executeClearData() {
+        const confirmBtn = document.getElementById('btn-confirm-clear-data');
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> RESETTING...';
+        }
+
+        fetch('/api/clear-data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (clearConfirmModalInstance) {
+                    clearConfirmModalInstance.hide();
+                }
+                showToast('All dashboard data cleared! Starting fresh from 0.', 'success');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
+            } else {
+                showToast(data.error || 'Failed to clear data.', 'error');
+                if (confirmBtn) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.innerHTML = '<i class="bi bi-trash3-fill me-1"></i> YES, CLEAR DATA';
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Clear data error:', err);
+            showToast('Network error while resetting data.', 'error');
+            if (confirmBtn) {
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '<i class="bi bi-trash3-fill me-1"></i> YES, CLEAR DATA';
+            }
+        });
     }
 
     // ===== Live Monitoring JS Integration =====

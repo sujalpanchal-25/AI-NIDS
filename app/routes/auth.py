@@ -67,6 +67,12 @@ def login():
         
         remember_flag = bool(form.remember_me.data)
         session.permanent = remember_flag
+        
+        # Reset dataset selection and set clean session start for fresh 0 metrics
+        session.pop('selected_dataset', None)
+        session.pop('selected_dataset_name', None)
+        session['session_start_time'] = datetime.utcnow().isoformat()
+        
         login_user(
             user, 
             remember=remember_flag, 
@@ -170,6 +176,11 @@ def verify_email():
         
         user.last_login = db.func.now()
         db.session.commit()
+        
+        from flask import session
+        session.pop('selected_dataset', None)
+        session.pop('selected_dataset_name', None)
+        session['session_start_time'] = datetime.utcnow().isoformat()
         
         # Log user in
         login_user(user)
