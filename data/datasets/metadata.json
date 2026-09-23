@@ -1,42 +1,62 @@
 {
   "sample_traffic.csv": {
     "batch_id": "cf16e527-be2f-4857-8705-7c4692d1a3f0",
+    "user_id": 4,
+    "username": "Sujal",
     "timestamp": "2026-09-23T05:12:50.864974"
   },
   "output1.csv": {
     "batch_id": "1da3f069-6b39-4721-8e69-1ce3f655bdc1",
+    "user_id": 4,
+    "username": "Sujal",
     "timestamp": "2026-08-08T12:17:58.631573"
   },
   "Midterm_53_group.csv": {
     "batch_id": "e4f8ce5c-e72d-413f-9c70-5d1e1d68328e",
+    "user_id": 4,
+    "username": "Sujal",
     "timestamp": "2026-08-09T06:03:59.901916"
   },
   "Midterm_53_group_2_with_required_columns.csv": {
     "batch_id": "a2e1edea-724b-4640-8ed5-df2ae31a7d59",
+    "user_id": 4,
+    "username": "Sujal",
     "timestamp": "2026-08-09T15:35:12.209953"
   },
   "Midterm_1.csv": {
     "batch_id": "d00bf875-6963-4877-9542-dfe070351a1b",
+    "user_id": 4,
+    "username": "Sujal",
     "timestamp": "2026-08-09T15:38:59.589159"
   },
   "NIDS_test_data.csv": {
     "batch_id": "ea8e0b51-9c86-472e-bea7-5f9355a50fa3",
+    "user_id": 4,
+    "username": "Sujal",
     "timestamp": "2026-08-11T05:01:45.324099"
   },
   "CTU13_Attack_Traffic.csv": {
     "batch_id": "4a6790db-ce6c-4c39-9c38-0a1541f9cd53",
+    "user_id": 4,
+    "username": "Sujal",
     "timestamp": "2026-08-11T11:51:15.150866"
   },
   "Test_data.csv": {
     "batch_id": "218fef88-84b9-4bf3-81c9-2a77a68c0f7c",
+    "user_id": 4,
+    "username": "Sujal",
     "timestamp": "2026-08-11T11:55:08.301503"
   },
   "UNSW_NB15_training-set.csv": {
     "batch_id": "4886980b-cf7e-48e5-b11d-e3a75005f598",
+    "user_id": 4,
+    "username": "Sujal",
     "timestamp": "2026-08-11T14:11:44.832063"
   },
   "upload_sample_traffic.csv": {
     "batch_id": "45eb431d-b518-4281-bc3e-2246cc291051",
+    "user_id": 4,
+    "username": "Sujal",
     "timestamp": "2026-09-23T05:24:27.431084"
   }
 }

@@ -1692,36 +1692,73 @@
                 <!-- Tab 2: Live Traffic Predictions -->
                 <div id="history-tab-live" class="d-none">
                     <div class="p-4 rounded border border-secondary border-opacity-25 bg-dark bg-opacity-50">
-                        <div class="d-flex align-items-center justify-content-between mb-3">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
                             <div>
                                 <h5 class="text-light m-0 font-monospace d-flex align-items-center gap-2">
-                                    <span class="live-status-dot monitoring"></span>
-                                    <span>REAL-TIME LIVE TRAFFIC MONITORING</span>
+                                    <span class="live-status-dot monitoring" id="live-hist-status-dot"></span>
+                                    <span>REAL-TIME LIVE TRAFFIC PREDICTIONS</span>
+                                    <span class="badge bg-secondary font-monospace" id="live-hist-status-badge">STOPPED</span>
                                 </h5>
-                                <p class="text-secondary small mt-1 mb-0">Live packet capture session telemetry & streaming anomaly classification</p>
+                                <p class="text-secondary small mt-1 mb-0">Live packet capture session telemetry, ML streaming anomaly classification & intrusion history</p>
                             </div>
                             <button type="button" class="btn btn-info px-4 py-2 fw-bold font-monospace shadow-sm" onclick="switchToLiveMode()">
                                 <i class="bi bi-play-circle-fill me-1"></i> SWITCH DASHBOARD TO LIVE TRAFFIC
                             </button>
                         </div>
-                        <div class="row g-3 mt-2">
-                            <div class="col-md-4">
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-3 col-6">
                                 <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-25 text-center">
-                                    <span class="text-secondary small d-block mb-1">SESSION START TIME</span>
-                                    <h6 id="live-hist-session-start" class="text-info font-monospace m-0">N/A</h6>
+                                    <span class="text-secondary small d-block mb-1">SESSION START</span>
+                                    <h6 id="live-hist-session-start" class="text-info font-monospace m-0" style="font-size: 0.85rem;">N/A</h6>
                                 </div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3 col-6">
+                                <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-25 text-center">
+                                    <span class="text-secondary small d-block mb-1">PACKETS CAPTURED</span>
+                                    <h4 id="live-hist-packets" class="text-info cyber-number m-0">0</h4>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-6">
                                 <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-25 text-center">
                                     <span class="text-secondary small d-block mb-1">FLOWS RECORDED</span>
                                     <h4 id="live-hist-flows" class="text-primary cyber-number m-0">0</h4>
                                 </div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3 col-6">
                                 <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-25 text-center">
                                     <span class="text-secondary small d-block mb-1">THREAT ALERTS</span>
                                     <h4 id="live-hist-alerts" class="text-danger cyber-number m-0">0</h4>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Live Events Audit Subtable -->
+                        <div class="mt-4">
+                            <h6 class="font-monospace text-secondary small mb-2 d-flex align-items-center gap-2">
+                                <i class="bi bi-shield-exclamation text-warning"></i>
+                                <span>LIVE INTRUSION EVENTS DETECTED IN THIS SESSION</span>
+                            </h6>
+                            <div class="table-responsive rounded border border-secondary border-opacity-25" style="max-height: 240px; overflow-y: auto;">
+                                <table class="table table-dark table-hover align-middle m-0 small">
+                                    <thead class="table-dark">
+                                        <tr class="text-secondary font-monospace" style="font-size: 0.75rem;">
+                                            <th>TIME</th>
+                                            <th>SOURCE IP</th>
+                                            <th>TARGET IP</th>
+                                            <th>ATTACK VECTOR</th>
+                                            <th>SEVERITY</th>
+                                            <th>CONFIDENCE</th>
+                                            <th>AI MODEL</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="live-hist-events-tbody">
+                                        <tr>
+                                            <td colspan="7" class="text-center py-3 text-secondary">
+                                                No live intrusions detected yet in current session.
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -2521,11 +2558,61 @@
                     badgeMode.innerHTML = `<i class="bi bi-broadcast me-1"></i> ACTIVE: LIVE MONITORING`;
                 }
 
-                // Update Live tab
+                // Update Live tab telemetry
                 const liveStats = data.live_stats || {};
-                document.getElementById('live-hist-session-start').textContent = liveStats.session_start || 'N/A';
-                document.getElementById('live-hist-flows').textContent = (liveStats.flows || 0).toLocaleString();
-                document.getElementById('live-hist-alerts').textContent = (liveStats.alerts || 0).toLocaleString();
+                const isMon = liveStats.is_monitoring || false;
+                const statusBadge = document.getElementById('live-hist-status-badge');
+                const statusDot = document.getElementById('live-hist-status-dot');
+                
+                if (statusBadge) {
+                    statusBadge.className = isMon ? 'badge bg-success font-monospace' : 'badge bg-secondary font-monospace';
+                    statusBadge.textContent = isMon ? 'MONITORING ACTIVE' : 'STOPPED';
+                }
+                if (statusDot) {
+                    statusDot.className = isMon ? 'live-status-dot monitoring' : 'live-status-dot stopped';
+                }
+
+                const sStartEl = document.getElementById('live-hist-session-start');
+                const sPackEl = document.getElementById('live-hist-packets');
+                const sFlowEl = document.getElementById('live-hist-flows');
+                const sAlertEl = document.getElementById('live-hist-alerts');
+                
+                if (sStartEl) sStartEl.textContent = liveStats.session_start || 'N/A';
+                if (sPackEl) sPackEl.textContent = (liveStats.packets_captured || 0).toLocaleString();
+                if (sFlowEl) sFlowEl.textContent = (liveStats.flows || 0).toLocaleString();
+                if (sAlertEl) sAlertEl.textContent = (liveStats.alerts || 0).toLocaleString();
+
+                // Populate live intrusion events table
+                const liveEventsTbody = document.getElementById('live-hist-events-tbody');
+                if (liveEventsTbody) {
+                    const events = liveStats.events || [];
+                    if (events.length === 0) {
+                        liveEventsTbody.innerHTML = `
+                            <tr>
+                                <td colspan="7" class="text-center py-3 text-secondary font-monospace">
+                                    <i class="bi bi-shield-check text-success me-1"></i> No live intrusions detected yet in current session.
+                                </td>
+                            </tr>
+                        `;
+                    } else {
+                        let evHtml = '';
+                        events.forEach(ev => {
+                            const sevClass = ev.severity === 'critical' ? 'badge bg-danger' : (ev.severity === 'high' ? 'badge bg-warning text-dark' : 'badge bg-info');
+                            evHtml += `
+                                <tr>
+                                    <td class="font-monospace text-secondary">${ev.timestamp}</td>
+                                    <td class="font-monospace text-info">${ev.source_ip || 'N/A'}</td>
+                                    <td class="font-monospace text-light">${ev.destination_ip || 'N/A'}</td>
+                                    <td><span class="badge bg-danger bg-opacity-25 text-danger border border-danger border-opacity-25">${ev.attack_type}</span></td>
+                                    <td><span class="${sevClass} font-monospace">${(ev.severity || 'high').toUpperCase()}</span></td>
+                                    <td class="font-monospace text-info">${ev.confidence}%</td>
+                                    <td class="font-monospace text-secondary small">${ev.model_used || 'Adaptive Ensemble'}</td>
+                                </tr>
+                            `;
+                        });
+                        liveEventsTbody.innerHTML = evHtml;
+                    }
+                }
 
                 // Update CSV tab
                 const datasets = data.datasets || [];
@@ -2534,9 +2621,15 @@
                 if (datasets.length === 0) {
                     tbody.innerHTML = `
                         <tr>
-                            <td colspan="7" class="text-center py-4 text-secondary">
-                                <i class="bi bi-folder-x fs-4 d-block mb-2 text-muted"></i>
-                                No uploaded CSV datasets found yet. Use "UPLOAD CSV" or "SAMPLE DATA" to run predictions.
+                            <td colspan="7" class="text-center py-5 text-secondary">
+                                <div class="p-3">
+                                    <i class="bi bi-folder-x fs-2 d-block mb-2 text-muted"></i>
+                                    <h6 class="text-light fw-bold font-monospace">No Dataset Predictions Found</h6>
+                                    <p class="small text-secondary mb-3">No CSV datasets have been uploaded or analyzed under your account yet.</p>
+                                    <button class="btn btn-outline-info btn-sm font-monospace" onclick="if(historyModalInstance) historyModalInstance.hide(); openUploadModal();">
+                                        <i class="bi bi-upload me-1"></i> UPLOAD CSV DATASET
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     `;

@@ -30,8 +30,8 @@ def index():
 @login_required
 def dashboard():
     """Main dashboard view."""
-    # Get available datasets and selections
-    datasets = analysis_service.get_available_datasets()
+    # Get available datasets and selections strictly isolated for current user
+    datasets = analysis_service.get_available_datasets(user_id=current_user.id, is_admin=(current_user.role == 'admin'))
     selected_dataset = session.get('selected_dataset')
     selected_dataset_name = session.get('selected_dataset_name')
     
@@ -501,7 +501,10 @@ def upload_dataset():
                 return jsonify({'error': f'Sample dataset file not found at {sample_path}'}), 404
                 
             app_obj = current_app._get_current_object()
-            batch_id = analysis_service.start_analysis_async(sample_path, app=app_obj, use_sample=True)
+            batch_id = analysis_service.start_analysis_async(
+                sample_path, app=app_obj, use_sample=True,
+                user_id=current_user.id, username=current_user.username
+            )
             session['selected_dataset'] = batch_id
             session['selected_dataset_name'] = 'sample_traffic.csv'
             return jsonify({'success': True, 'batch_id': batch_id, 'message': 'Sample analysis started'})
@@ -532,9 +535,12 @@ def upload_dataset():
                 os.remove(file_path)
             return jsonify({'error': err_msg}), 400
             
-        # Start analysis process
+        # Start analysis process with user ownership
         app_obj = current_app._get_current_object()
-        batch_id = analysis_service.start_analysis_async(file_path, app=app_obj, use_sample=False)
+        batch_id = analysis_service.start_analysis_async(
+            file_path, app=app_obj, use_sample=False,
+            user_id=current_user.id, username=current_user.username
+        )
         session['selected_dataset'] = batch_id
         session['selected_dataset_name'] = filename
         return jsonify({
@@ -580,9 +586,14 @@ def select_dataset():
         if not os.path.exists(file_path):
             return jsonify({'error': f'Dataset {filename} not found in storage'}), 404
             
-        # Get metadata mapping
+        # Get metadata mapping & check user ownership
         metadata = analysis_service.get_metadata()
         batch_info = metadata.get(filename, {})
+        owner_id = batch_info.get('user_id')
+        
+        if owner_id is not None and owner_id != current_user.id and current_user.role != 'admin':
+            return jsonify({'error': 'Access denied. You do not own this dataset.'}), 403
+            
         batch_id = batch_info.get('batch_id')
         
         # Check if records actually exist in database
@@ -603,7 +614,10 @@ def select_dataset():
             # Trigger analysis
             is_sample = (filename == 'sample_traffic.csv')
             app_obj = current_app._get_current_object()
-            new_batch_id = analysis_service.start_analysis_async(file_path, app=app_obj, use_sample=is_sample)
+            new_batch_id = analysis_service.start_analysis_async(
+                file_path, app=app_obj, use_sample=is_sample,
+                user_id=current_user.id, username=current_user.username
+            )
             
             session['selected_dataset'] = new_batch_id
             session['selected_dataset_name'] = filename
@@ -662,9 +676,10 @@ def clear_dashboard_data():
 @dashboard_bp.route('/api/prediction-history', methods=['GET'])
 @login_required
 def get_prediction_history():
-    """Retrieve full history of previous CSV dataset predictions and live session stats."""
+    """Retrieve full user-isolated history of CSV dataset predictions and live session stats."""
     try:
-        datasets = analysis_service.get_available_datasets()
+        # Strictly user-isolated dataset list
+        datasets = analysis_service.get_available_datasets(user_id=current_user.id, is_admin=(current_user.role == 'admin'))
         active_batch = session.get('selected_dataset')
         active_dataset_name = session.get('selected_dataset_name')
         
@@ -716,10 +731,61 @@ def get_prediction_history():
                 'size_bytes': d.get('size_bytes', 0)
             })
 
-        # Live monitoring stats
+        # Comprehensive Live monitoring session telemetry
         session_start = get_session_start_time()
-        live_flows = NetworkFlow.query.filter(NetworkFlow.timestamp >= session_start).count() if not active_batch else 0
-        live_alerts = Alert.query.filter(Alert.timestamp >= session_start).count() if not active_batch else 0
+        is_monitoring = False
+        packets_captured = 0
+        flows_processed = 0
+        threats_detected = 0
+        benign_count = 0
+        
+        try:
+            from app.routes.live_routes import _capture_manager
+            if _capture_manager:
+                is_monitoring = getattr(_capture_manager, 'is_running', False)
+                if hasattr(_capture_manager, 'capture') and _capture_manager.capture:
+                    packets_captured = getattr(_capture_manager.capture, 'packets_captured', 0)
+                    flows_processed = getattr(_capture_manager.capture, 'flows_processed', 0)
+                    threats_detected = getattr(_capture_manager.capture, 'threats_detected', 0)
+                    benign_count = getattr(_capture_manager.capture, 'benign_count', 0)
+        except Exception:
+            pass
+
+        live_flows = NetworkFlow.query.filter(
+            NetworkFlow.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            NetworkFlow.timestamp >= session_start
+        ).count()
+        
+        live_alerts = Alert.query.filter(
+            Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            Alert.timestamp >= session_start
+        ).count()
+
+        top_live_attack = "None"
+        top_attack_row = db.session.query(
+            Alert.attack_type, func.count().label('cnt')
+        ).filter(
+            Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            Alert.timestamp >= session_start
+        ).group_by(Alert.attack_type).order_by(func.count().desc()).first()
+        if top_attack_row and top_attack_row[0]:
+            top_live_attack = top_attack_row[0]
+
+        recent_live_alerts = Alert.query.filter(
+            Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            Alert.timestamp >= session_start
+        ).order_by(Alert.timestamp.desc()).limit(8).all()
+
+        live_events = [{
+            'id': a.id,
+            'timestamp': a.timestamp.strftime('%H:%M:%S') if a.timestamp else 'N/A',
+            'source_ip': a.source_ip,
+            'destination_ip': a.destination_ip,
+            'attack_type': a.attack_type or 'Unknown',
+            'severity': a.severity,
+            'confidence': round((a.confidence or 0.0) * 100, 1),
+            'model_used': a.model_used
+        } for a in recent_live_alerts]
 
         return jsonify({
             'success': True,
@@ -730,6 +796,13 @@ def get_prediction_history():
             'live_stats': {
                 'flows': live_flows,
                 'alerts': live_alerts,
+                'is_monitoring': is_monitoring,
+                'packets_captured': packets_captured,
+                'flows_processed': flows_processed,
+                'threats_detected': threats_detected,
+                'benign_count': benign_count,
+                'top_attack': top_live_attack,
+                'events': live_events,
                 'session_start': session_start.strftime('%Y-%m-%d %H:%M:%S')
             }
         })

@@ -207,8 +207,8 @@ class CSVAnalysisService:
             logger.warning(f"Failed to initialize Adaptive Ensemble: {e_ens}")
             self.detector.adaptive_ensemble = None
 
-    def save_metadata(self, filename: str, batch_id: str):
-        """Save dataset filename to batch_id mapping in metadata.json."""
+    def save_metadata(self, filename: str, batch_id: str, user_id: Optional[int] = None, username: Optional[str] = None):
+        """Save dataset filename to batch_id and owner user_id mapping in metadata.json."""
         metadata_path = os.path.join(self.upload_dir, 'metadata.json')
         data = {}
         if os.path.exists(metadata_path):
@@ -218,10 +218,16 @@ class CSVAnalysisService:
             except Exception as e:
                 logger.error(f"Error reading metadata.json: {e}")
         
-        data[filename] = {
+        entry = {
             'batch_id': batch_id,
             'timestamp': datetime.utcnow().isoformat()
         }
+        if user_id is not None:
+            entry['user_id'] = user_id
+        if username is not None:
+            entry['username'] = username
+            
+        data[filename] = entry
         
         try:
             with open(metadata_path, 'w') as f:
@@ -240,8 +246,8 @@ class CSVAnalysisService:
                 logger.error(f"Error reading metadata.json: {e}")
         return {}
 
-    def get_available_datasets(self) -> List[Dict[str, Any]]:
-        """Scan upload directory for CSV datasets and map them to their metadata/batch IDs."""
+    def get_available_datasets(self, user_id: Optional[int] = None, is_admin: bool = False) -> List[Dict[str, Any]]:
+        """Scan upload directory for CSV datasets strictly owned by user_id unless is_admin=True."""
         if not os.path.exists(self.upload_dir):
             return []
         
@@ -253,21 +259,32 @@ class CSVAnalysisService:
             if name.endswith('.csv'):
                 file_path = os.path.join(self.upload_dir, name)
                 if os.path.isfile(file_path):
-                    # Check if we have a batch_id for it
                     batch_info = metadata.get(name, {})
                     batch_id = batch_info.get('batch_id')
+                    owner_id = batch_info.get('user_id')
+                    owner_name = batch_info.get('username')
                     is_sample = (name == 'sample_traffic.csv')
                     
+                    # Multi-tenant user isolation:
+                    # If user_id is provided, only include files owned by this user
+                    # (Unless user is admin or it's a sample specifically run by this user)
+                    if user_id is not None and not is_admin:
+                        # Only show if explicitly owned by this user_id
+                        if owner_id != user_id:
+                            continue
+                            
                     datasets.append({
                         'filename': name,
                         'batch_id': batch_id,
+                        'user_id': owner_id,
+                        'username': owner_name,
                         'is_sample': is_sample,
                         'size_bytes': os.path.getsize(file_path),
                         'modified': os.path.getmtime(file_path)
                     })
         
-        # Sort so sample_traffic.csv is first, then other files by modified time descending
-        datasets.sort(key=lambda x: (not x['is_sample'], -x['modified']))
+        # Sort by modified time descending
+        datasets.sort(key=lambda x: (not x.get('is_sample', False), -x['modified']))
         return datasets
 
     def validate_file(self, file_path: str) -> Tuple[bool, Optional[str]]:
@@ -345,13 +362,13 @@ class CSVAnalysisService:
             
         return True, None
 
-    def start_analysis_async(self, file_path: str, app: Any, use_sample: bool = False) -> str:
+    def start_analysis_async(self, file_path: str, app: Any, use_sample: bool = False, user_id: Optional[int] = None, username: Optional[str] = None) -> str:
         """Starts the parsing and classification inside a background worker thread."""
         batch_id = str(uuid.uuid4())
         
-        # Save filename -> batch_id mapping immediately
+        # Save filename -> batch_id mapping with user ownership immediately
         filename = os.path.basename(file_path)
-        self.save_metadata(filename, batch_id)
+        self.save_metadata(filename, batch_id, user_id=user_id, username=username)
         
         with status_lock:
             ANALYSIS_STATUS[batch_id] = {
