@@ -94,7 +94,9 @@ def create_app(config_name=None):
             admin = User(
                 username='admin',
                 email='admin@ainids.local',
-                role='admin'
+                role='admin',
+                is_verified=True,
+                is_active=True
             )
             admin.set_password('admin123')  # Change in production!
             db.session.add(admin)

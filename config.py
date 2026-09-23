@@ -30,7 +30,18 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'ai-nids-super-secret-key-change-in-production'
     
     # Database
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or f'sqlite:///{BASE_DIR / "data" / "nids.db"}'
+    _db_url = os.environ.get('DATABASE_URL')
+    if _db_url and _db_url.startswith('sqlite:///'):
+        _sqlite_path = _db_url[10:]
+        if not os.path.isabs(_sqlite_path) and not (len(_sqlite_path) > 1 and _sqlite_path[1] == ':'):
+            SQLALCHEMY_DATABASE_URI = f'sqlite:///{BASE_DIR / _sqlite_path}'
+        else:
+            SQLALCHEMY_DATABASE_URI = _db_url
+    elif _db_url:
+        SQLALCHEMY_DATABASE_URI = _db_url
+    else:
+        SQLALCHEMY_DATABASE_URI = f'sqlite:///{BASE_DIR / "data" / "nids.db"}'
+    
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = False
     
@@ -145,7 +156,11 @@ class Config:
         'Heartbleed': 'Exploit'
     }
     
-    # Notification Settings
+    # Notification & Email Settings (Brevo & SMTP)
+    BREVO_API_KEY = os.environ.get('BREVO_API_KEY')
+    BREVO_SENDER_EMAIL = os.environ.get('BREVO_SENDER_EMAIL') or os.environ.get('GOOGLE_EMAIL', 'teamclickjack@gmail.com')
+    BREVO_SENDER_NAME = os.environ.get('BREVO_SENDER_NAME', 'AI-NIDS Security')
+    
     SMTP_SERVER = os.environ.get('SMTP_SERVER') or 'smtp.gmail.com'
     SMTP_PORT = int(os.environ.get('SMTP_PORT') or 587)
     SMTP_USERNAME = os.environ.get('SMTP_USERNAME')
@@ -199,8 +214,6 @@ class ProductionConfig(Config):
                 "Set it in your .env file or system environment before running in production."
             )
         return key
-
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or f'sqlite:///{BASE_DIR / "data" / "nids.db"}'
     
     # Azure SQL connection string format
     # SQLALCHEMY_DATABASE_URI = 'mssql+pyodbc://user:pass@server.database.windows.net/dbname?driver=ODBC+Driver+17+for+SQL+Server'

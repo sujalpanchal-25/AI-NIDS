@@ -24,6 +24,9 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), default='analyst')  # admin, analyst, viewer
     is_active = db.Column(db.Boolean, default=True)
+    is_verified = db.Column(db.Boolean, default=False)
+    verification_otp = db.Column(db.String(6), nullable=True)
+    otp_created_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
     
@@ -38,6 +41,38 @@ class User(UserMixin, db.Model):
         """Check password against hash."""
         return check_password_hash(self.password_hash, password)
     
+    def generate_otp(self) -> str:
+        """Generate a cryptographically secure 6-digit verification OTP."""
+        otp = str(secrets.randbelow(900000) + 100000)  # 6-digit number between 100000 and 999999
+        self.verification_otp = otp
+        self.otp_created_at = datetime.utcnow()
+        return otp
+    
+    def verify_otp(self, otp_code: str, max_age_minutes: int = 15) -> tuple[bool, str]:
+        """
+        Verify the provided OTP code.
+        
+        Returns:
+            (success: bool, message: str)
+        """
+        if not self.verification_otp:
+            return False, "No verification code requested or already verified."
+        
+        if self.verification_otp != otp_code.strip():
+            return False, "Invalid verification code. Please check and try again."
+        
+        if self.otp_created_at:
+            age_seconds = (datetime.utcnow() - self.otp_created_at).total_seconds()
+            if age_seconds > max_age_minutes * 60:
+                return False, f"Verification code has expired (valid for {max_age_minutes} minutes). Please request a new code."
+        
+        # Mark user as verified and active
+        self.is_verified = True
+        self.is_active = True
+        self.verification_otp = None
+        self.otp_created_at = None
+        return True, "Email verified successfully!"
+    
     def to_dict(self):
         """Convert to dictionary."""
         return {
@@ -46,12 +81,14 @@ class User(UserMixin, db.Model):
             'email': self.email,
             'role': self.role,
             'is_active': self.is_active,
+            'is_verified': self.is_verified,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login': self.last_login.isoformat() if self.last_login else None
         }
     
     def __repr__(self):
         return f'<User {self.username}>'
+
 
 
 class Alert(db.Model):

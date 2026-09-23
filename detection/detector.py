@@ -666,15 +666,14 @@ class DetectionEngine:
             confidence = 0.65
             description = 'Suspicious remote access activity'
         
-        # If threat detected from external IP
-        elif src_ip and not src_ip.startswith(('192.168.', '10.', '172.16.')):
+        # External IP accessing sensitive management ports → always flag as Reconnaissance
+        elif src_ip and not src_ip.startswith(('192.168.', '10.', '172.16.', '127.')):
             if dst_port in suspicious_ports:
-                is_threat = random.random() > 0.7  # 30% chance to flag external access to sensitive ports
-                if is_threat:
-                    attack_type = 'Reconnaissance'
-                    severity = 'low'
-                    confidence = 0.60
-                    description = f'External access attempt to port {dst_port}'
+                is_threat = True  # Deterministic: external access to management port is always suspicious
+                attack_type = 'Reconnaissance'
+                severity = 'low'
+                confidence = 0.55
+                description = f'External access attempt to management port {dst_port}'
         
         return {
             'is_threat': is_threat,

@@ -721,13 +721,13 @@ def get_traffic_analytics(start_date, end_date):
             timeline_inbound.append(round((t.bytes_in or 0) / (1024 * 1024), 2))
             timeline_outbound.append(round((t.bytes_out or 0) / (1024 * 1024), 2))
     else:
-        # Generate sample data if no real data
-        import random
+        # No real data — return honest zero-value empty state.
+        # Dashboard should show "no data" rather than fake traffic.
         for i in range(24):
-            hour = (datetime.utcnow() - timedelta(hours=23-i)).strftime('%H:00')
+            hour = (datetime.utcnow() - timedelta(hours=23 - i)).strftime('%H:00')
             timeline_labels.append(hour)
-            timeline_inbound.append(round(random.uniform(10, 100), 2))
-            timeline_outbound.append(round(random.uniform(5, 80), 2))
+            timeline_inbound.append(0.0)
+            timeline_outbound.append(0.0)
     
     return {
         'total_flows': total_flows,

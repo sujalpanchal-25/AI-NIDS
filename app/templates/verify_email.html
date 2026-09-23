@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Verify Email - AI-NIDS{% endblock %}
+
+{% block auth_content %}
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-header">
+            <div class="auth-logo">
+                <i class="bi bi-envelope-check"></i>
+            </div>
+            <h1>Verify Your Email</h1>
+            <p>Enter the 6-digit code sent to<br><strong class="text-primary">{{ target_email or form.email.data }}</strong></p>
+        </div>
+        
+        <form method="POST" action="{{ url_for('auth.verify_email') }}" class="auth-form">
+            {{ form.hidden_tag() }}
+            
+            <input type="hidden" name="email" value="{{ target_email or form.email.data }}">
+            
+            <div class="form-group mb-4">
+                <label for="otp" class="form-label text-center d-block">
+                    <i class="bi bi-key me-1"></i>
+                    6-Digit Verification Code
+                </label>
+                {{ form.otp(
+                    class="form-control form-control-lg text-center fw-bold", 
+                    placeholder="• • • • • •", 
+                    maxlength="6",
+                    autocomplete="one-time-code",
+                    style="font-size: 28px; letter-spacing: 12px; font-family: 'Courier New', monospace; background: rgba(13, 17, 23, 0.8); border: 2px solid #388bfd; border-radius: 10px; color: #58a6ff;"
+                ) }}
+                {% if form.otp.errors %}
+                <div class="invalid-feedback d-block text-center mt-2">
+                    {{ form.otp.errors[0] }}
+                </div>
+                {% endif %}
+                <div class="form-text text-center mt-2 text-muted">
+                    <i class="bi bi-clock-history me-1"></i> Code expires in 15 minutes
+                </div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-auth w-100 mb-3" style="padding: 12px; font-size: 16px; font-weight: 600;">
+                <i class="bi bi-shield-check me-2"></i>
+                Verify & Activate Account
+            </button>
+        </form>
+
+        <div class="resend-section text-center pt-3 border-top border-secondary border-opacity-25">
+            <p class="text-muted mb-2">Didn't receive the email?</p>
+            <form method="POST" action="{{ url_for('auth.resend_otp') }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="email" value="{{ target_email or form.email.data }}">
+                <button type="submit" class="btn btn-outline-info btn-sm">
+                    <i class="bi bi-arrow-repeat me-1"></i> Resend Verification Code
+                </button>
+            </form>
+        </div>
+        
+        <div class="auth-footer mt-4 text-center">
+            <p><a href="{{ url_for('auth.login') }}"><i class="bi bi-arrow-left me-1"></i> Back to Sign In</a></p>
+        </div>
+    </div>
+</div>
+
+<style>
+.auth-logo {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 1.5rem;
+    background: rgba(31, 111, 235, 0.15);
+    border: 2px solid #1f6feb;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: #58a6ff;
+    box-shadow: 0 0 20px rgba(31, 111, 235, 0.3);
+}
+</style>
+{% endblock %}

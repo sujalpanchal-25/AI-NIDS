@@ -15,9 +15,14 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
 from abc import ABC, abstractmethod
-import requests
 from threading import Thread
 from queue import Queue
+
+try:
+    import requests
+except ImportError:
+    requests = None
+
 
 logger = logging.getLogger(__name__)
 

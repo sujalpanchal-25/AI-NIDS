@@ -348,10 +348,8 @@ class ModelPredictor:
         if abs(mean_val) > 5.0:
             anomaly_score += 0.2
         
-        # Add small random factor
-        noise = np.random.uniform(-0.1, 0.1)
-        
-        probability = min(1.0, max(0.0, anomaly_score + noise + 0.2))
+        # Combine deterministic factors — no random noise
+        probability = min(1.0, max(0.0, anomaly_score + 0.2))
         
         return probability
     

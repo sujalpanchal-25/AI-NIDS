@@ -104,3 +104,18 @@ class UserEditForm(FlaskForm):
     ])
     is_active = BooleanField('Active')
     submit = SubmitField('Update User')
+
+
+class VerifyEmailForm(FlaskForm):
+    """Email OTP verification form."""
+    email = StringField('Email', validators=[
+        DataRequired(message='Email is required.'),
+        Regexp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', message='Please enter a valid email address.')
+    ])
+    otp = StringField('Verification Code', validators=[
+        DataRequired(message='Please enter the 6-digit verification code.'),
+        Length(min=6, max=6, message='Verification code must be exactly 6 digits.'),
+        Regexp(r'^\d{6}$', message='Verification code must contain only 6 numbers.')
+    ])
+    submit = SubmitField('Verify & Activate Account')
+

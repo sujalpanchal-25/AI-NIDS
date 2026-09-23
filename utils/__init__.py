@@ -28,6 +28,12 @@ from utils.notifications import (
     create_notification_manager
 )
 
+from utils.email_service import (
+    send_email_brevo,
+    send_registration_confirmation,
+    send_registration_confirmation_async
+)
+
 __all__ = [
     # Helpers
     'get_ip_info',
@@ -49,5 +55,10 @@ __all__ = [
     'NotificationChannel',
     'NotificationPriority',
     'get_notification_manager',
-    'create_notification_manager'
+    'create_notification_manager',
+    # Email Service
+    'send_email_brevo',
+    'send_registration_confirmation',
+    'send_registration_confirmation_async'
 ]
+

@@ -12,7 +12,7 @@ from datetime import datetime
 
 from app import db, login_manager
 from app.models.database import User, Alert, APIKey
-from app.routes.forms import LoginForm, RegistrationForm, ChangePasswordForm
+from app.routes.forms import LoginForm, RegistrationForm, ChangePasswordForm, VerifyEmailForm
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -38,6 +38,25 @@ def login():
         if user is None or not user.check_password(form.password.data):
             flash('Invalid username or password.', 'danger')
             return redirect(url_for('auth.login'))
+        
+        # Check if email is verified
+        if not user.is_verified:
+            otp = user.generate_otp()
+            db.session.commit()
+            
+            try:
+                from utils.email_service import send_verification_otp_email_async
+                send_verification_otp_email_async(
+                    user_email=user.email,
+                    username=user.username,
+                    otp_code=otp
+                )
+            except Exception as e_otp:
+                from flask import current_app
+                current_app.logger.warning(f"Failed to send verification OTP on login: {e_otp}")
+                
+            flash('Please verify your email address to activate your account. A 6-digit verification code has been sent to your email.', 'warning')
+            return redirect(url_for('auth.verify_email', email=user.email))
         
         if not user.is_active:
             flash('Your account has been deactivated. Please contact an administrator.', 'warning')
@@ -79,7 +98,7 @@ def logout():
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
-    """User registration."""
+    """User registration with Brevo email OTP validation."""
     if current_user.is_authenticated:
         return redirect(url_for('dashboard.dashboard'))
     
@@ -89,21 +108,126 @@ def register():
         user = User(
             username=form.username.data.strip(),
             email=form.email.data.strip().lower(),
-            role='analyst'  # Default role
+            role='analyst',
+            is_active=False,     # Inactive until email is verified
+            is_verified=False
         )
         user.set_password(form.password.data)
+        otp = user.generate_otp()
         
         db.session.add(user)
         db.session.commit()
         
-        login_user(user)
+        # Send 6-digit OTP verification email via Brevo API
+        try:
+            from utils.email_service import send_verification_otp_email_async
+            send_verification_otp_email_async(
+                user_email=user.email,
+                username=user.username,
+                otp_code=otp
+            )
+        except Exception as e_mail:
+            from flask import current_app
+            current_app.logger.warning(f"Failed to dispatch OTP email: {e_mail}")
+        
+        flash(f'Registration initiated! A 6-digit verification code has been sent to {user.email}. Enter it below to activate your account.', 'info')
+        return redirect(url_for('auth.verify_email', email=user.email))
+    
+    return render_template('register.html', form=form)
+
+
+@auth_bp.route('/verify-email', methods=['GET', 'POST'])
+def verify_email():
+    """Verify 6-digit OTP email confirmation."""
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard.dashboard'))
+    
+    target_email = request.args.get('email', '') or request.form.get('email', '')
+    form = VerifyEmailForm()
+    
+    if request.method == 'GET' and target_email:
+        form.email.data = target_email
+        
+    if form.validate_on_submit():
+        email_clean = form.email.data.strip().lower()
+        otp_code = form.otp.data.strip()
+        
+        user = User.query.filter_by(email=email_clean).first()
+        
+        if not user:
+            flash('No account found with this email address.', 'danger')
+            return render_template('verify_email.html', form=form, target_email=email_clean)
+        
+        if user.is_verified:
+            flash('Your email is already verified! Please sign in.', 'info')
+            return redirect(url_for('auth.login'))
+        
+        success, message = user.verify_otp(otp_code)
+        
+        if not success:
+            flash(message, 'danger')
+            return render_template('verify_email.html', form=form, target_email=email_clean)
+        
         user.last_login = db.func.now()
         db.session.commit()
         
-        flash(f'Registration successful! Welcome, {user.username}!', 'success')
+        # Log user in
+        login_user(user)
+        
+        # Send confirmation / welcome email via Brevo
+        try:
+            from utils.email_service import send_registration_confirmation_async
+            send_registration_confirmation_async(
+                user_email=user.email,
+                username=user.username,
+                role=user.role
+            )
+        except Exception as e_conf:
+            from flask import current_app
+            current_app.logger.warning(f"Failed to dispatch welcome email: {e_conf}")
+            
+        flash(f'Email verified successfully! Welcome to AI-NIDS, {user.username}!', 'success')
         return redirect(url_for('dashboard.dashboard'))
+        
+    return render_template('verify_email.html', form=form, target_email=target_email)
+
+
+@auth_bp.route('/resend-otp', methods=['POST'])
+def resend_otp():
+    """Resend 6-digit OTP code to user email via Brevo API."""
+    email = request.form.get('email', '').strip().lower()
     
-    return render_template('register.html', form=form)
+    if not email:
+        flash('Email address is required to resend verification code.', 'warning')
+        return redirect(url_for('auth.verify_email'))
+    
+    user = User.query.filter_by(email=email).first()
+    
+    if not user:
+        flash('No account found with this email address.', 'danger')
+        return redirect(url_for('auth.register'))
+    
+    if user.is_verified:
+        flash('Your account is already verified! Please sign in.', 'info')
+        return redirect(url_for('auth.login'))
+    
+    otp = user.generate_otp()
+    db.session.commit()
+    
+    try:
+        from utils.email_service import send_verification_otp_email_async
+        send_verification_otp_email_async(
+            user_email=user.email,
+            username=user.username,
+            otp_code=otp
+        )
+    except Exception as e_resend:
+        from flask import current_app
+        current_app.logger.warning(f"Failed to resend OTP email: {e_resend}")
+        
+    flash(f'A new 6-digit verification code has been sent to {user.email}.', 'success')
+    return redirect(url_for('auth.verify_email', email=user.email))
+
 
 
 @auth_bp.route('/profile')
