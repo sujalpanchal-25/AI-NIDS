@@ -11,38 +11,45 @@
     </div>
 
     <!-- Page Header -->
-    <div class="page-header cyber-header">
+    <!-- Page Header -->
+    <div class="page-header cyber-header d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
         <div>
-            <h1 class="page-title cyber-title">
+            <h1 class="page-title cyber-title mb-1 d-flex align-items-center gap-2">
                 <span class="title-icon">◈</span>
-                Command Center
+                <span>Command Center</span>
             </h1>
-            <p class="page-subtitle">Real-time neural network security monitoring</p>
+            <p class="page-subtitle m-0 text-secondary small">Real-time neural network security & threat intelligence telemetry</p>
         </div>
-        <div class="header-actions">
-            <select id="dataset-selector" class="cyber-select me-2" onchange="changeSelectedDataset(this.value)">
-                <option value="">LATEST LIVE TRAFFIC</option>
-                {% for d in datasets %}
-                <option value="{{ d.filename }}" {% if selected_dataset_name == d.filename %}selected{% endif %}>
-                    {% if d.is_sample %}🛡️ Built-in Sample (sample_traffic.csv){% else %}📊 {{ d.filename }}{% endif %}
-                </option>
-                {% endfor %}
-            </select>
-            <button class="btn cyber-btn-sample" onclick="loadSampleDataset()">
+        <div class="header-actions d-flex align-items-center flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-1">
+                <select id="dataset-selector" class="cyber-select" style="max-width: 210px;" onchange="changeSelectedDataset(this.value)" title="Active Dataset Source">
+                    <option value="">⚡ LIVE TRAFFIC</option>
+                    {% for d in datasets %}
+                    <option value="{{ d.filename }}" {% if selected_dataset_name == d.filename %}selected{% endif %}>
+                        {% if d.is_sample %}🛡️ Sample Traffic{% else %}📊 {{ d.filename }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="btn cyber-btn-sample" onclick="loadSampleDataset()" title="Run Sample Threat Traffic">
                 <i class="bi bi-file-earmark-play"></i>
-                <span>SAMPLE DATA</span>
+                <span>SAMPLE</span>
             </button>
-            <button class="btn cyber-btn-upload" onclick="openUploadModal()">
-                <i class="bi bi-upload"></i>
-                <span>UPLOAD CSV</span>
+            <button class="btn cyber-btn-upload" onclick="openUploadModal()" title="Upload CSV Capture">
+                <i class="bi bi-cloud-upload"></i>
+                <span>UPLOAD</span>
             </button>
-            <button class="btn cyber-btn-refresh" onclick="refreshDashboard()">
+            <button class="btn cyber-btn-history" onclick="openPredictionHistoryModal()" title="View Prediction History & Reports">
+                <i class="bi bi-clock-history"></i>
+                <span>HISTORY</span>
+            </button>
+            <button class="btn cyber-btn-refresh" onclick="refreshDashboard()" title="Synchronize Dashboard">
                 <i class="bi bi-arrow-clockwise"></i>
                 <span>SYNC</span>
             </button>
             <button class="btn cyber-btn-clear" onclick="openClearDataModal()" title="Reset all dashboard data to 0">
                 <i class="bi bi-trash3"></i>
-                <span>CLEAR DATA</span>
+                <span>CLEAR</span>
             </button>
         </div>
     </div>
@@ -50,26 +57,28 @@
     <!-- Live Monitoring Panel -->
     <div class="live-monitoring-panel cyber-panel mb-4">
         <div class="panel-border"></div>
-        <div class="panel-header d-flex align-items-center justify-content-between flex-wrap gap-2 p-3 border-bottom border-secondary border-opacity-25">
+        <div class="panel-header d-flex align-items-center justify-content-between flex-wrap gap-3 p-3 border-bottom border-secondary border-opacity-25">
             <div class="d-flex align-items-center gap-3">
-                <h3 class="m-0 cyber-title fs-5 d-flex align-items-center gap-2">
+                <h3 class="m-0 cyber-title fs-6 d-flex align-items-center gap-2">
                     <span class="live-status-dot stopped" id="live-status-pulse"></span>
                     <span>LIVE MONITORING</span>
                 </h3>
-                <span id="live-status-badge" class="badge bg-secondary px-3 py-2 fs-6">STOPPED</span>
+                <span id="live-status-badge" class="badge bg-secondary px-3 py-1 font-monospace" style="font-size: 0.75rem;">STOPPED</span>
             </div>
             
             <div class="d-flex align-items-center gap-2 flex-wrap">
-                <label for="live-interface-select" class="text-secondary small me-1">INTERFACE:</label>
-                <select id="live-interface-select" class="cyber-select me-2" style="min-width: 220px;">
+                <span class="text-secondary small font-monospace d-none d-sm-inline">INTERFACE:</span>
+                <select id="live-interface-select" class="cyber-select" style="max-width: 250px;" title="Network Adapter Interface">
                     <option value="">Loading interfaces...</option>
                 </select>
-                <button id="btn-start-monitoring" class="btn cyber-btn-start btn-sm" onclick="startLiveMonitoring()">
-                    <i class="bi bi-play-fill me-1"></i> START MONITORING
-                </button>
-                <button id="btn-stop-monitoring" class="btn cyber-btn-stop btn-sm" onclick="stopLiveMonitoring()" disabled>
-                    <i class="bi bi-stop-fill me-1"></i> STOP MONITORING
-                </button>
+                <div class="d-inline-flex align-items-center gap-2">
+                    <button id="btn-start-monitoring" class="btn cyber-btn-start btn-sm text-nowrap" onclick="startLiveMonitoring()">
+                        <i class="bi bi-play-fill me-1"></i> START
+                    </button>
+                    <button id="btn-stop-monitoring" class="btn cyber-btn-stop btn-sm text-nowrap" onclick="stopLiveMonitoring()" disabled>
+                        <i class="bi bi-stop-fill me-1"></i> STOP
+                    </button>
+                </div>
             </div>
         </div>
         
@@ -535,6 +544,69 @@
         color: #ffffff;
     }
 
+    .cyber-btn-history {
+        background: rgba(165, 94, 234, 0.1);
+        border: 1px solid rgba(165, 94, 234, 0.4);
+        color: #a55eea;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        font-family: 'Orbitron', 'Inter', sans-serif;
+        font-size: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .cyber-btn-history:hover {
+        background: rgba(165, 94, 234, 0.25);
+        border-color: #a55eea;
+        box-shadow: 0 0 12px rgba(165, 94, 234, 0.5);
+        color: #ffffff;
+    }
+
+    .history-tab-btn {
+        background: transparent;
+        border: 1px solid rgba(0, 242, 254, 0.2);
+        color: #8a99ad;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 0.8rem;
+        padding: 0.5rem 1.25rem;
+        border-radius: 4px;
+        transition: all 0.25s ease;
+    }
+
+    .history-tab-btn.active {
+        background: rgba(0, 242, 254, 0.15);
+        border-color: #00f2fe;
+        color: #00f2fe;
+        box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+    }
+
+    .cyber-table-history th {
+        background: rgba(0, 242, 254, 0.08);
+        color: #00f2fe;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 0.75rem;
+        letter-spacing: 1px;
+        border-color: rgba(0, 242, 254, 0.15);
+        padding: 0.75rem;
+    }
+
+    .cyber-table-history td {
+        background: rgba(15, 15, 23, 0.7);
+        color: #d1d8e0;
+        border-color: rgba(255, 255, 255, 0.05);
+        padding: 0.75rem;
+        vertical-align: middle;
+        font-size: 0.85rem;
+    }
+
+    .cyber-table-history tr:hover td {
+        background: rgba(0, 242, 254, 0.05);
+    }
+
     .stat-card.cyber-card {
         position: relative;
         overflow: hidden;
@@ -606,11 +678,11 @@
     }
 
     .cyber-number {
-        font-family: 'Orbitron', 'Inter', sans-serif;
-        background: linear-gradient(135deg, #fff 0%, #a0a0a0 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        font-family: 'Orbitron', 'JetBrains Mono', 'Segoe UI', 'Inter', monospace, sans-serif;
+        color: #ffffff;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        display: inline-block;
     }
 
     .accuracy-bar {
@@ -1565,6 +1637,107 @@
     </div>
 </div>
 
+<!-- Prediction & Telemetry Audit History Modal -->
+<div class="modal fade cyber-modal" id="predictionHistoryModal" tabindex="-1" aria-labelledby="predictionHistoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content" style="background: rgba(14, 14, 22, 0.98); border: 1px solid rgba(165, 94, 234, 0.4); box-shadow: 0 0 35px rgba(165, 94, 234, 0.2);">
+            <div class="modal-header border-bottom border-secondary border-opacity-25 p-3 d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-3">
+                    <h5 class="modal-title d-flex align-items-center gap-2 m-0 text-info" id="predictionHistoryModalLabel" style="font-family: 'Orbitron', sans-serif; font-size: 1rem; letter-spacing: 1px;">
+                        <i class="bi bi-clock-history text-purple" style="color: #a55eea;"></i>
+                        <span>PREDICTION & TELEMETRY AUDIT HUB</span>
+                    </h5>
+                    <span id="history-active-mode-badge" class="badge bg-secondary font-monospace">FETCHING STATE...</span>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            
+            <div class="modal-body p-4">
+                <!-- Navigation Tabs -->
+                <div class="d-flex gap-2 mb-4 border-bottom border-secondary border-opacity-25 pb-3">
+                    <button type="button" class="history-tab-btn active" id="tab-btn-csv" onclick="switchHistoryTab('csv')">
+                        <i class="bi bi-filetype-csv me-1 text-info"></i> CSV Upload Predictions (<span id="csv-history-count">0</span>)
+                    </button>
+                    <button type="button" class="history-tab-btn" id="tab-btn-live" onclick="switchHistoryTab('live')">
+                        <i class="bi bi-broadcast me-1 text-warning"></i> Live Traffic Predictions
+                    </button>
+                </div>
+
+                <!-- Tab 1: CSV Upload Batches -->
+                <div id="history-tab-csv">
+                    <div class="table-responsive rounded border border-secondary border-opacity-25" style="max-height: 420px;">
+                        <table class="table table-dark table-hover cyber-table-history m-0 align-middle">
+                            <thead>
+                                <tr>
+                                    <th>DATASET / FILE</th>
+                                    <th>UPLOAD TIME</th>
+                                    <th>TOTAL FLOWS</th>
+                                    <th>THREATS</th>
+                                    <th>TOP ATTACK VECTOR</th>
+                                    <th>CONFIDENCE</th>
+                                    <th class="text-end">ACTIONS</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-csv-tbody">
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-secondary">
+                                        <span class="spinner-border spinner-border-sm me-2 text-info"></span> Loading previous predictions...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Live Traffic Predictions -->
+                <div id="history-tab-live" class="d-none">
+                    <div class="p-4 rounded border border-secondary border-opacity-25 bg-dark bg-opacity-50">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div>
+                                <h5 class="text-light m-0 font-monospace d-flex align-items-center gap-2">
+                                    <span class="live-status-dot monitoring"></span>
+                                    <span>REAL-TIME LIVE TRAFFIC MONITORING</span>
+                                </h5>
+                                <p class="text-secondary small mt-1 mb-0">Live packet capture session telemetry & streaming anomaly classification</p>
+                            </div>
+                            <button type="button" class="btn btn-info px-4 py-2 fw-bold font-monospace shadow-sm" onclick="switchToLiveMode()">
+                                <i class="bi bi-play-circle-fill me-1"></i> SWITCH DASHBOARD TO LIVE TRAFFIC
+                            </button>
+                        </div>
+                        <div class="row g-3 mt-2">
+                            <div class="col-md-4">
+                                <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-25 text-center">
+                                    <span class="text-secondary small d-block mb-1">SESSION START TIME</span>
+                                    <h6 id="live-hist-session-start" class="text-info font-monospace m-0">N/A</h6>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-25 text-center">
+                                    <span class="text-secondary small d-block mb-1">FLOWS RECORDED</span>
+                                    <h4 id="live-hist-flows" class="text-primary cyber-number m-0">0</h4>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-25 text-center">
+                                    <span class="text-secondary small d-block mb-1">THREAT ALERTS</span>
+                                    <h4 id="live-hist-alerts" class="text-danger cyber-number m-0">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+            
+            <div class="modal-footer border-top border-secondary border-opacity-25 p-3 d-flex justify-content-end">
+                <button type="button" class="btn btn-outline-secondary px-4 py-2" data-bs-dismiss="modal" style="font-family: 'Orbitron', sans-serif; font-size: 0.8rem; letter-spacing: 1px;">
+                    CLOSE
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -2286,6 +2459,141 @@
                 confirmBtn.innerHTML = '<i class="bi bi-trash3-fill me-1"></i> YES, CLEAR DATA';
             }
         });
+    }
+
+    // ===== Prediction History & Telemetry Hub =====
+    let historyModalInstance = null;
+
+    function openPredictionHistoryModal() {
+        if (!historyModalInstance) {
+            historyModalInstance = new bootstrap.Modal(document.getElementById('predictionHistoryModal'));
+        }
+        historyModalInstance.show();
+        fetchPredictionHistory();
+    }
+
+    function switchHistoryTab(tab) {
+        const btnCsv = document.getElementById('tab-btn-csv');
+        const btnLive = document.getElementById('tab-btn-live');
+        const viewCsv = document.getElementById('history-tab-csv');
+        const viewLive = document.getElementById('history-tab-live');
+
+        if (tab === 'csv') {
+            btnCsv.classList.add('active');
+            btnLive.classList.remove('active');
+            viewCsv.classList.remove('d-none');
+            viewLive.classList.add('d-none');
+        } else {
+            btnLive.classList.add('active');
+            btnCsv.classList.remove('active');
+            viewLive.classList.remove('d-none');
+            viewCsv.classList.add('d-none');
+        }
+    }
+
+    function fetchPredictionHistory() {
+        const tbody = document.getElementById('history-csv-tbody');
+        const countLabel = document.getElementById('csv-history-count');
+        const badgeMode = document.getElementById('history-active-mode-badge');
+        
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="text-center py-4 text-secondary">
+                    <span class="spinner-border spinner-border-sm me-2 text-info"></span> Fetching prediction history...
+                </td>
+            </tr>
+        `;
+
+        fetch('/api/prediction-history')
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success) {
+                    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-3">${data.error || 'Failed to fetch history'}</td></tr>`;
+                    return;
+                }
+
+                // Update Active Mode Badge
+                if (data.active_mode === 'dataset') {
+                    badgeMode.className = 'badge bg-primary font-monospace';
+                    badgeMode.innerHTML = `<i class="bi bi-database me-1"></i> ACTIVE: ${data.active_dataset_name || 'DATASET BATCH'}`;
+                } else {
+                    badgeMode.className = 'badge bg-success font-monospace';
+                    badgeMode.innerHTML = `<i class="bi bi-broadcast me-1"></i> ACTIVE: LIVE MONITORING`;
+                }
+
+                // Update Live tab
+                const liveStats = data.live_stats || {};
+                document.getElementById('live-hist-session-start').textContent = liveStats.session_start || 'N/A';
+                document.getElementById('live-hist-flows').textContent = (liveStats.flows || 0).toLocaleString();
+                document.getElementById('live-hist-alerts').textContent = (liveStats.alerts || 0).toLocaleString();
+
+                // Update CSV tab
+                const datasets = data.datasets || [];
+                countLabel.textContent = datasets.length;
+
+                if (datasets.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="7" class="text-center py-4 text-secondary">
+                                <i class="bi bi-folder-x fs-4 d-block mb-2 text-muted"></i>
+                                No uploaded CSV datasets found yet. Use "UPLOAD CSV" or "SAMPLE DATA" to run predictions.
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+
+                let html = '';
+                datasets.forEach(d => {
+                    const activeBadge = d.is_active ? `<span class="badge bg-success font-monospace me-2"><i class="bi bi-check-circle me-1"></i>ACTIVE VIEW</span>` : '';
+                    const sampleBadge = d.is_sample ? `<span class="badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 me-1">Sample</span>` : '';
+                    const threatsBadge = d.total_alerts > 0 ? `<span class="badge bg-danger font-monospace">${d.total_alerts.toLocaleString()}</span>` : `<span class="badge bg-success font-monospace">0 (Clean)</span>`;
+                    const topAttackBadge = d.top_attack !== 'None' ? `<span class="badge bg-warning text-dark font-monospace">${d.top_attack}</span>` : `<span class="text-muted small">None</span>`;
+                    const confVal = d.avg_confidence > 0 ? `${d.avg_confidence}%` : 'N/A';
+
+                    html += `
+                        <tr class="${d.is_active ? 'table-active' : ''}">
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <i class="bi bi-filetype-csv fs-5 text-info"></i>
+                                    <div>
+                                        <div class="fw-bold text-light">${d.filename}</div>
+                                        <div class="small mt-1">${activeBadge}${sampleBadge}<span class="text-muted">${(d.size_bytes / 1024).toFixed(1)} KB</span></div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="font-monospace text-secondary small">${d.modified || 'N/A'}</td>
+                            <td class="font-monospace fw-bold text-light">${d.total_flows > 0 ? d.total_flows.toLocaleString() : '<span class="text-muted">Not Analyzed</span>'}</td>
+                            <td>${threatsBadge}</td>
+                            <td>${topAttackBadge}</td>
+                            <td class="font-monospace text-info">${confVal}</td>
+                            <td class="text-end text-nowrap">
+                                ${d.is_active ? 
+                                    `<button class="btn btn-sm btn-success disabled font-monospace me-1"><i class="bi bi-eye-fill me-1"></i> VIEWING</button>` : 
+                                    `<button class="btn btn-sm btn-outline-info font-monospace me-1" onclick="changeSelectedDataset('${d.filename}')"><i class="bi bi-box-arrow-in-up-right me-1"></i> LOAD VIEW</button>`
+                                }
+                                ${d.batch_id && d.total_flows > 0 ? 
+                                    `<a href="/api/export-report/${d.batch_id}/pdf" class="btn btn-sm btn-outline-danger" title="Download Security PDF Report"><i class="bi bi-file-earmark-pdf"></i></a>` : 
+                                    ''
+                                }
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                tbody.innerHTML = html;
+            })
+            .catch(err => {
+                console.error('History fetch error:', err);
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-3">Network error loading prediction history.</td></tr>`;
+            });
+    }
+
+    function switchToLiveMode() {
+        if (historyModalInstance) {
+            historyModalInstance.hide();
+        }
+        changeSelectedDataset('');
     }
 
     // ===== Live Monitoring JS Integration =====

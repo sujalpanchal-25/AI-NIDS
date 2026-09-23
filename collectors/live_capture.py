@@ -229,7 +229,7 @@ class DetectionCallback(PacketCallback):
                 
                 if is_attack:
                     alert = {
-                        'timestamp': datetime.now().isoformat(),
+                        'timestamp': datetime.utcnow().isoformat(),
                         'flow_key': flow_key,
                         'risk_score': round(confidence, 4),
                         'attack_type': attack_type,
@@ -242,7 +242,7 @@ class DetectionCallback(PacketCallback):
                 result = self.detector.analyze_features(features)
                 if result and result.get('is_anomaly', False):
                     alert = {
-                        'timestamp': datetime.now().isoformat(),
+                        'timestamp': datetime.utcnow().isoformat(),
                         'flow_key': flow_key,
                         'risk_score': result.get('risk_score', 0),
                         'attack_type': result.get('attack_type', 'Unknown'),
@@ -746,7 +746,7 @@ class LiveCapture:
                 while not self._stop_event.is_set():
                     packet_count += 1
                     sim_pkt = CapturedPacket(
-                        timestamp=datetime.now(),
+                        timestamp=datetime.utcnow(),
                         src_ip=f"192.168.1.{(packet_count % 50) + 1}",
                         dst_ip=f"10.0.0.{(packet_count % 20) + 1}",
                         src_port=random.randint(1024, 65535),
@@ -1024,7 +1024,7 @@ class LiveCaptureManager:
 
             if getattr(res, 'is_attack', False):
                 alert = {
-                    'timestamp': datetime.now().isoformat(),
+                    'timestamp': datetime.utcnow().isoformat(),
                     'flow_id': flow_dict.get('flow_id'),
                     'source_ip': flow_dict.get('source_ip'),
                     'destination_ip': flow_dict.get('destination_ip'),

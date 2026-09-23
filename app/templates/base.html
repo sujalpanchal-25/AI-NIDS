@@ -40,7 +40,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
     
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -140,20 +140,26 @@
     <!-- Main Content -->
     <main class="main-content">
         <!-- Top Navbar -->
-        <nav class="top-navbar">
-            <button id="sidebar-toggle" class="btn btn-link" title="Toggle Sidebar">
-                <i class="bi bi-list"></i>
-            </button>
-            
-            <div class="navbar-search">
-                <i class="bi bi-search"></i>
-                <input type="text" placeholder="Search alerts, IPs... (e.g., 192.168.1.1, 8.8.8.8, malware)" class="form-control" id="global-search">
+        <nav class="top-navbar px-3 py-2 d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-3">
+                <button id="sidebar-toggle" class="btn btn-link p-1 text-secondary" title="Toggle Sidebar">
+                    <i class="bi bi-list fs-4"></i>
+                </button>
+                <div class="d-none d-lg-flex align-items-center gap-2 px-2 py-1 rounded bg-black bg-opacity-30 border border-secondary border-opacity-25 font-monospace" style="font-size: 0.72rem;">
+                    <span class="pulse-dot" style="width: 6px; height: 6px; background: #00f2fe;"></span>
+                    <span class="text-info fw-semibold">AI CORE ACTIVE</span>
+                </div>
             </div>
             
-            <div class="navbar-actions">
+            <div class="navbar-search mx-3" style="max-width: 460px;">
+                <i class="bi bi-search"></i>
+                <input type="text" placeholder="Search alerts, IPs, vectors..." class="form-control" id="global-search">
+            </div>
+            
+            <div class="navbar-actions d-flex align-items-center gap-2">
                 <!-- Theme Switcher Dropdown -->
-                <div class="dropdown me-1">
-                    <button class="btn btn-link dropdown-toggle" data-bs-toggle="dropdown" id="theme-dropdown-btn" title="Switch Theme" style="color: var(--text-primary);">
+                <div class="dropdown">
+                    <button class="btn btn-link text-secondary p-2 d-flex align-items-center" data-bs-toggle="dropdown" id="theme-dropdown-btn" title="Switch Theme">
                         <i class="bi bi-moon-stars-fill" id="theme-toggle-icon"></i>
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end shadow">
@@ -163,20 +169,28 @@
                     </ul>
                 </div>
 
-                <button class="btn btn-link position-relative" id="notifications-btn">
-                    <i class="bi bi-bell"></i>
-                    <span class="notification-badge"></span>
-                </button>
-                
-                <div class="dropdown">
-                    <button class="btn btn-link dropdown-toggle" data-bs-toggle="dropdown">
-                        <i class="bi bi-person-circle"></i>
+                <!-- Notifications Button -->
+                <div class="position-relative d-inline-flex align-items-center">
+                    <button class="btn btn-link text-secondary p-2 d-flex align-items-center" id="notifications-btn" title="Notifications">
+                        <i class="bi bi-bell fs-5"></i>
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                        <li><a class="dropdown-item" href="{{ url_for('auth.profile') }}"><i class="bi bi-person me-2"></i>Profile</a></li>
-                        <li><a class="dropdown-item" href="{{ url_for('auth.change_password') }}"><i class="bi bi-key me-2"></i>Change Password</a></li>
+                    <span class="notification-badge"></span>
+                </div>
+                
+                <!-- User Profile Dropdown -->
+                <div class="dropdown ms-1">
+                    <button class="btn btn-link text-decoration-none d-flex align-items-center gap-2 p-1 px-2 rounded border border-secondary border-opacity-25 bg-dark bg-opacity-40" data-bs-toggle="dropdown" style="color: var(--text-primary);">
+                        <i class="bi bi-person-circle fs-5 text-info"></i>
+                        <span class="d-none d-sm-inline small font-monospace fw-bold text-light">{{ current_user.username }}</span>
+                        <i class="bi bi-chevron-down text-secondary" style="font-size: 0.7rem;"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow">
+                        <li class="dropdown-header font-monospace text-secondary small">SIGNED IN AS <strong class="text-light d-block">{{ current_user.username }}</strong></li>
                         <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('auth.profile') }}"><i class="bi bi-person me-2 text-info"></i>Profile</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('auth.change_password') }}"><i class="bi bi-key me-2 text-warning"></i>Change Password</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="javascript:void(0);" data-bs-toggle="modal" data-bs-target="#logoutConfirmModal"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
                     </ul>
                 </div>
             </div>
@@ -347,15 +361,23 @@
             position: absolute;
             top: 2px;
             right: 2px;
-            width: 18px;
+            min-width: 18px;
             height: 18px;
-            background: #ff4757;
-            border-radius: 50%;
-            font-size: 10px;
-            color: white;
+            padding: 0 4px;
+            border-radius: 999px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            line-height: 1;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #ff3366;
+            color: #ffffff;
             display: none;
             align-items: center;
             justify-content: center;
+            box-shadow: 0 0 8px rgba(255, 51, 102, 0.65);
+            border: 2px solid #12121a;
+            pointer-events: none;
+            z-index: 5;
         }
         
         .notification-dropdown {
@@ -542,6 +564,38 @@
             });
         });
     </script>
+    
+    {% if current_user.is_authenticated %}
+    <!-- Logout Confirmation Modal -->
+    <div class="modal fade cyber-modal" id="logoutConfirmModal" tabindex="-1" aria-labelledby="logoutConfirmModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+            <div class="modal-content" style="background: rgba(18, 18, 26, 0.98); border: 1px solid rgba(255, 71, 87, 0.4); box-shadow: 0 0 30px rgba(255, 71, 87, 0.25); border-radius: 12px; backdrop-filter: blur(12px);">
+                <div class="modal-header border-bottom border-secondary border-opacity-25 p-3">
+                    <h5 class="modal-title d-flex align-items-center gap-2 m-0 text-danger" id="logoutConfirmModalLabel" style="font-family: 'Orbitron', sans-serif; font-size: 0.95rem; letter-spacing: 1px;">
+                        <i class="bi bi-shield-lock-fill"></i>
+                        <span>CONFIRM LOGOUT</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body py-4 text-center px-4">
+                    <div class="mb-3 d-inline-flex align-items-center justify-content-center" style="width: 60px; height: 60px; border-radius: 50%; background: rgba(255, 71, 87, 0.12); border: 1px solid rgba(255, 71, 87, 0.35);">
+                        <i class="bi bi-box-arrow-right text-danger" style="font-size: 1.8rem;"></i>
+                    </div>
+                    <h6 class="text-light fw-bold mb-2 font-monospace">Terminate Active Session?</h6>
+                    <p class="text-secondary small mb-0">Are you sure you want to log out of AI-NIDS? You will need to sign in again to access the dashboard.</p>
+                </div>
+                <div class="modal-footer border-top border-secondary border-opacity-25 p-3 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary px-3 btn-sm" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle me-1"></i> Cancel
+                    </button>
+                    <a href="{{ url_for('auth.logout') }}" class="btn btn-danger px-4 btn-sm fw-semibold shadow-sm d-flex align-items-center gap-2">
+                        <i class="bi bi-box-arrow-right"></i> Yes, Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
     
     {% block extra_js %}{% endblock %}
 </body>

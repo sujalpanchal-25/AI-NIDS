@@ -106,5 +106,26 @@ class TestDashboardZeroStart(unittest.TestCase):
         print("\n--- Stats after executing Clear Data ---")
         print(stats)
 
+    def test_prediction_history_endpoint(self):
+        # 1. Login
+        self.client.post('/auth/login', data={
+            'username': 'test_analyst',
+            'password': 'Password123!'
+        }, follow_redirects=True)
+
+        # 2. Query /api/prediction-history
+        hist_resp = self.client.get('/api/prediction-history')
+        self.assertEqual(hist_resp.status_code, 200)
+        hist_data = hist_resp.get_json()
+
+        self.assertTrue(hist_data.get('success'))
+        self.assertIn('datasets', hist_data)
+        self.assertIn('live_stats', hist_data)
+        self.assertIn('active_mode', hist_data)
+        print("\n--- Prediction History API Response ---")
+        print("Active mode:", hist_data.get('active_mode'))
+        print("Datasets found:", len(hist_data.get('datasets', [])))
+        print("Live stats:", hist_data.get('live_stats'))
+
 if __name__ == '__main__':
     unittest.main()

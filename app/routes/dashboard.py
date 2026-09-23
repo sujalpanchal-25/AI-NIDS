@@ -128,13 +128,23 @@ def sync_dashboard():
 @dashboard_bp.route('/dashboard/notifications')
 @login_required
 def get_notifications():
-    """Get user notifications."""
+    """Get user notifications scoped to active batch or fresh session."""
     try:
-        # Get unacknowledged critical/high alerts
-        notifications = Alert.query.filter(
-            Alert.acknowledged == False,
-            Alert.severity.in_(['critical', 'high'])
-        ).order_by(Alert.timestamp.desc()).limit(10).all()
+        batch_id = session.get('selected_dataset')
+        if batch_id:
+            notifications = Alert.query.filter(
+                Alert.batch_id == batch_id,
+                Alert.acknowledged == False,
+                Alert.severity.in_(['critical', 'high'])
+            ).order_by(Alert.timestamp.desc()).limit(10).all()
+        else:
+            session_start = get_session_start_time()
+            notifications = Alert.query.filter(
+                Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+                Alert.timestamp >= session_start,
+                Alert.acknowledged == False,
+                Alert.severity.in_(['critical', 'high'])
+            ).order_by(Alert.timestamp.desc()).limit(10).all()
         
         return jsonify({
             'success': True,
@@ -219,9 +229,15 @@ def get_dashboard_stats():
         flow_trend = 0.0
         alert_trend = 0.0
     else:
-        # Live Traffic / Fresh Session Mode: only count records from this session onwards
-        q_flows = NetworkFlow.query.filter(NetworkFlow.timestamp >= session_start)
-        q_alerts = Alert.query.filter(Alert.timestamp >= session_start)
+        # Live Traffic / Fresh Session Mode: only count live records from this session onwards
+        q_flows = NetworkFlow.query.filter(
+            NetworkFlow.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            NetworkFlow.timestamp >= session_start
+        )
+        q_alerts = Alert.query.filter(
+            Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            Alert.timestamp >= session_start
+        )
         
         total_flows = q_flows.count()
         total_alerts = q_alerts.count()
@@ -230,13 +246,17 @@ def get_dashboard_stats():
         blocked_ips = db.session.query(
             func.count(func.distinct(Alert.source_ip))
         ).filter(
+            Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
             Alert.timestamp >= session_start,
             Alert.severity.in_(['critical', 'high'])
         ).scalar() or 0
         
         avg_confidence = db.session.query(
             func.avg(Alert.confidence)
-        ).filter(Alert.timestamp >= session_start).scalar()
+        ).filter(
+            Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            Alert.timestamp >= session_start
+        ).scalar()
         
         detection_rate = round(min(avg_confidence * 100, 100), 1) if avg_confidence else 0.0
         flows_per_second = round(total_flows / max(1, (now - session_start).total_seconds()), 2) if total_flows > 0 else 0.0
@@ -263,7 +283,10 @@ def get_recent_alerts(limit=10):
         return Alert.query.filter_by(batch_id=batch_id).order_by(Alert.timestamp.desc()).limit(limit).all()
         
     session_start = get_session_start_time()
-    return Alert.query.filter(Alert.timestamp >= session_start).order_by(Alert.timestamp.desc()).limit(limit).all()
+    return Alert.query.filter(
+        Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+        Alert.timestamp >= session_start
+    ).order_by(Alert.timestamp.desc()).limit(limit).all()
 
 
 def get_traffic_timeline(hours=24):
@@ -284,7 +307,10 @@ def get_traffic_timeline(hours=24):
     if batch_id:
         q_data = q_data.filter(NetworkFlow.batch_id == batch_id)
     else:
-        q_data = q_data.filter(NetworkFlow.timestamp >= session_start)
+        q_data = q_data.filter(
+            NetworkFlow.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            NetworkFlow.timestamp >= session_start
+        )
         
     flow_data = q_data.group_by('minute').all()
     flow_dict = {f.minute: {'count': f.count, 'bytes': f.bytes or 0} for f in flow_data}
@@ -326,7 +352,10 @@ def get_attack_distribution():
     if batch_id:
         q_dist = q_dist.filter(Alert.batch_id == batch_id)
     else:
-        q_dist = q_dist.filter(Alert.timestamp >= session_start)
+        q_dist = q_dist.filter(
+            Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            Alert.timestamp >= session_start
+        )
         
     distribution = q_dist.group_by(Alert.attack_type).order_by(
         func.count().desc()
@@ -354,7 +383,10 @@ def get_severity_breakdown():
     if batch_id:
         q_sev = q_sev.filter(Alert.batch_id == batch_id)
     else:
-        q_sev = q_sev.filter(Alert.timestamp >= session_start)
+        q_sev = q_sev.filter(
+            Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            Alert.timestamp >= session_start
+        )
         
     breakdown = q_sev.group_by(Alert.severity).all()
     severity_dict = {s.severity: s.count for s in breakdown}
@@ -377,7 +409,10 @@ def get_top_source_ips(limit=5):
     if batch_id:
         q_ips = q_ips.filter(Alert.batch_id == batch_id)
     else:
-        q_ips = q_ips.filter(Alert.timestamp >= session_start)
+        q_ips = q_ips.filter(
+            Alert.batch_id.in_(['LIVE_CAPTURE', 'LIVE', None]),
+            Alert.timestamp >= session_start
+        )
         
     top_ips = q_ips.group_by(Alert.source_ip).order_by(
         func.count().desc()
@@ -622,6 +657,85 @@ def clear_dashboard_data():
         db.session.rollback()
         current_app.logger.error(f"Failed to clear dashboard data: {str(e)}")
         return jsonify({'success': False, 'error': f"Failed to clear data: {str(e)}"}), 500
+
+
+@dashboard_bp.route('/api/prediction-history', methods=['GET'])
+@login_required
+def get_prediction_history():
+    """Retrieve full history of previous CSV dataset predictions and live session stats."""
+    try:
+        datasets = analysis_service.get_available_datasets()
+        active_batch = session.get('selected_dataset')
+        active_dataset_name = session.get('selected_dataset_name')
+        
+        history_list = []
+        for d in datasets:
+            filename = d.get('filename')
+            batch_id = d.get('batch_id')
+            is_sample = d.get('is_sample', False)
+            
+            # Query DB metrics for this batch if batch_id is present
+            total_flows = 0
+            total_alerts = 0
+            critical_alerts = 0
+            top_attack = "None"
+            avg_confidence = 0.0
+            
+            if batch_id:
+                total_flows = NetworkFlow.query.filter_by(batch_id=batch_id).count()
+                total_alerts = Alert.query.filter_by(batch_id=batch_id).count()
+                critical_alerts = Alert.query.filter_by(batch_id=batch_id, severity='critical').count()
+                
+                # Top attack
+                top_attack_row = db.session.query(
+                    Alert.attack_type, func.count().label('cnt')
+                ).filter_by(batch_id=batch_id).group_by(Alert.attack_type).order_by(func.count().desc()).first()
+                if top_attack_row and top_attack_row[0]:
+                    top_attack = top_attack_row[0]
+                    
+                conf_val = db.session.query(func.avg(Alert.confidence)).filter_by(batch_id=batch_id).scalar()
+                if conf_val:
+                    avg_confidence = round(float(conf_val) * 100, 1)
+
+            modified_ts = None
+            if d.get('modified'):
+                modified_ts = datetime.fromtimestamp(d.get('modified')).strftime('%Y-%m-%d %H:%M:%S')
+
+            history_list.append({
+                'filename': filename,
+                'batch_id': batch_id,
+                'is_sample': is_sample,
+                'is_active': (batch_id == active_batch) if (batch_id and active_batch) else False,
+                'is_analyzed': (total_flows > 0),
+                'total_flows': total_flows,
+                'total_alerts': total_alerts,
+                'critical_alerts': critical_alerts,
+                'top_attack': top_attack,
+                'avg_confidence': avg_confidence,
+                'modified': modified_ts,
+                'size_bytes': d.get('size_bytes', 0)
+            })
+
+        # Live monitoring stats
+        session_start = get_session_start_time()
+        live_flows = NetworkFlow.query.filter(NetworkFlow.timestamp >= session_start).count() if not active_batch else 0
+        live_alerts = Alert.query.filter(Alert.timestamp >= session_start).count() if not active_batch else 0
+
+        return jsonify({
+            'success': True,
+            'active_mode': 'dataset' if active_batch else 'live',
+            'active_batch_id': active_batch,
+            'active_dataset_name': active_dataset_name,
+            'datasets': history_list,
+            'live_stats': {
+                'flows': live_flows,
+                'alerts': live_alerts,
+                'session_start': session_start.strftime('%Y-%m-%d %H:%M:%S')
+            }
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error fetching prediction history: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @dashboard_bp.route('/api/export-report/<batch_id>/pdf', methods=['GET'])
